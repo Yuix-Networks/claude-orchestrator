@@ -23,8 +23,9 @@ KOMUTLAR
   signin <ad> [--restart] [--exclusive]
                                  Giriş rehberi; --exclusive diğerlerini giriş süresince kapatır
   doctor [<ad>] [--json]         Sağlık kontrolleri
-  remove <ad> [--purge [--permanent]] [--force] [--yes]
-                                 Instance'ı siler (--purge: veriler Çöp Kutusu'na)
+  remove|delete|rm <ad> [--purge [--permanent]] [--force] [--yes]
+                                 Profili siler (--purge: veriler Çöp Kutusu'na,
+                                 --permanent: kalıcı; --force: çalışıyorsa durdurur)
   clone <ad> --as <yeni-ad> [--workdir <yol>]
                                  Instance'ı profil + oturumlarıyla klonlar
   project add <yol> [--name <ad>] [--folder <ek-yol>]... [--replace]
@@ -89,8 +90,8 @@ do {
         try SigninCommand.run(rest)
     case "doctor":
         try DoctorCommand.run(rest)
-    case "remove":
-        try RemoveCommand.run(rest)
+    case "remove", "delete", "rm":
+        try RemoveCommand.run(rest, command: command)
     case "agent":
         try AgentCommand.run(rest)
     case "clone":

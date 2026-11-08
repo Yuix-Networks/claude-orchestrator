@@ -125,7 +125,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 | `claude-orchestrator memory link\|unlink\|status` | Share `~/.claude/CLAUDE.md` with every instance |
 | `claude-orchestrator project …` (alias `env`) | Projects shared by every instance — Claude Desktop calls them environments (see below) |
 | `claude-orchestrator session …` | List, inspect, copy and move Claude Code sessions (see below) |
-| `claude-orchestrator remove <name> [--purge [--permanent]] [--yes]` | Delete the instance; `--purge` moves its data to the Trash (asks first) |
+| `claude-orchestrator remove <name> [--purge [--permanent]] [--force] [--yes]` | Delete the instance (alias `delete`, `rm`). `--purge` moves its data to the Trash and `--permanent` deletes it for good. A running instance is stopped after you confirm, or right away with `--force` |
 | `claude-orchestrator agent [--install\|--uninstall]` | Menu bar icons (one per instance), installable as a login item |
 
 Every `--json` output carries a `schemaVersion` field (currently `1`). It is bumped only

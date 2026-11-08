@@ -297,6 +297,7 @@ public final class Orchestrator {
     ///   - purge: `true` ise instance dizini (profil + Claude Code config +
     ///     oturumlar) de kaldırılır. `false` ise veriler korunur (instance
     ///     yeniden oluşturulduğunda geri gelir).
+    ///   - force: Instance çalışıyorsa önce durdurulur (durmazsa silinmez).
     ///   - permanent: `purge` ile birlikte `true` ise veriler kalıcı silinir;
     ///     `false` (varsayılan) ise Çöp Kutusu'na taşınır ve geri alınabilir.
     /// - Returns: Veriler Çöp Kutusu'na taşındıysa yeni konumları.
@@ -304,10 +305,17 @@ public final class Orchestrator {
     public func remove(name: String, purge: Bool, force: Bool = false, permanent: Bool = false) throws -> URL? {
         _ = try store.instance(named: name)
 
-        if !force, launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
-            throw OrchestratorError.runtime(
-                "instance çalışıyor: \(name) — önce 'claude-orchestrator stop \(name)' çalıştır (zorlamak için: --force)"
-            )
+        if launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
+            guard force else {
+                throw OrchestratorError.runtime(
+                    "instance çalışıyor: \(name) — önce 'claude-orchestrator stop \(name)' çalıştır (durdurup silmek için: --force)"
+                )
+            }
+            // Verileri çalışan bir Claude'un altından çekmemek için önce durdurulur.
+            _ = try stop(name: name)
+            if launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
+                throw OrchestratorError.runtime("instance durdurulamadı: \(name) — silinmedi")
+            }
         }
 
         var trashedTo: URL?

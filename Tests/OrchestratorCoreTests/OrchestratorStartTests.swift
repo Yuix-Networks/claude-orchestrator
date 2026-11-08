@@ -29,8 +29,12 @@ final class FakeLauncher: Launching {
         return Int32(target.split(separator: "-").last.map(String.init) ?? "")
     }
 
+    /// Verilirse `runningPid` yalnızca bu `true` dönerken pid bildirir.
+    var runningPidCheck: (() -> Bool)?
+
     func runningPid(profileDir: URL) -> Int32? {
-        runningPids[profileDir.path]
+        if let runningPidCheck, !runningPidCheck() { return nil }
+        return runningPids[profileDir.path]
     }
 
     func launch(_ request: LaunchRequest) throws {
@@ -389,6 +393,27 @@ final class OrchestratorStartTests: XCTestCase {
             FileManager.default.fileExists(atPath: paths.profileDir("work").path),
             "çalışan instance'ın profili silinmemeli"
         )
+    }
+
+    func testRemoveWithForceStopsRunningInstanceBeforeDeletingData() throws {
+        try ctl.new(name: "work", workdir: nil)
+        // Sinyaller gerçek bir sürece gitsin: sahte pid yerine kendi başlattığımız `sleep`.
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+        defer { if sleeper.isRunning { sleeper.terminate() } }
+        let profile = paths.profileDir("work").path
+        launcher.runningPids[profile] = sleeper.processIdentifier
+        // Süreç ölünce sahte launcher da "çalışmıyor" desin.
+        launcher.runningPidCheck = { [weak sleeper] in sleeper?.isRunning == true }
+
+        try ctl.remove(name: "work", purge: true, force: true, permanent: true)
+
+        sleeper.waitUntilExit()
+        XCTAssertFalse(sleeper.isRunning, "önce durdurulmalı")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: profile))
+        XCTAssertThrowsError(try ctl.store.instance(named: "work"))
     }
 
     func testRemoveClearsStateFile() throws {
