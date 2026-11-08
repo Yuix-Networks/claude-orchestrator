@@ -62,6 +62,21 @@ The result: several Claude instances side by side, each working on a different p
 
 ## Install
 
+### Install script (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Yuix-Networks/claude-orchestrator/main/install.sh | sh
+```
+
+The script downloads the latest release and checks its SHA-256 against the published
+value. It installs into `/usr/local/bin` when that is writable and into `~/.local/bin`
+otherwise. It never uses `sudo`, and it adds `claude-ctl` as a deprecated alias.
+
+- To pick a version or a directory, set `CLAUDE_ORCHESTRATOR_VERSION=0.2.2` or
+  `CLAUDE_ORCHESTRATOR_DIR=~/bin` in front of `sh`.
+- To uninstall, run `curl -fsSL …/install.sh | sh -s -- --uninstall`. Instance data is
+  kept.
+
 ### Homebrew
 
 ```bash
@@ -69,16 +84,14 @@ brew install yuix-networks/tap/claude-orchestrator
 ```
 
 The formula lives in [Yuix-Networks/homebrew-tap](https://github.com/Yuix-Networks/homebrew-tap).
-It also installs `claude-ctl` as a deprecated alias.
+Recent Homebrew versions ask you to trust a third-party tap once with
+`brew trust yuix-networks/tap`.
 
 ### From a release
 
-Download the `claude-orchestrator` binary from [Releases](https://github.com/Yuix-Networks/claude-orchestrator/releases)
-and put it on your `PATH`:
-
-```bash
-install -m 755 claude-orchestrator /usr/local/bin/
-```
+Download `claude-orchestrator-<version>.tar.gz` from
+[Releases](https://github.com/Yuix-Networks/claude-orchestrator/releases), extract it and
+put the binary on your `PATH`.
 
 ### From source
 
