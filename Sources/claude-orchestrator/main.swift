@@ -50,7 +50,7 @@ KOMUTLAR
 VERİ KONUMU
   ~/Library/Application Support/claude-ctl/
 
-Detaylı bilgi: https://github.com/Yuix-Networks/claude-ctl
+Detaylı bilgi: https://github.com/Yuix-Networks/claude-orchestrator
 """
 
 do {

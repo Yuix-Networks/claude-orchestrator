@@ -32,13 +32,17 @@ jobs:
           mkdir -p .build/artifacts
           BIN="$(find .build/xcode/Build/Products/Release -name claude-orchestrator -type f | head -1)"
           test -n "$BIN"
-          cp "$BIN" .build/artifacts/claude-orchestrator
+          # `install -m 755`: çalıştırma izni tarball'a girmeli (v0.2.0'da `cp` ile kayboldu).
+          install -m 755 "$BIN" .build/artifacts/claude-orchestrator
+          test -x .build/artifacts/claude-orchestrator
           lipo -info .build/artifacts/claude-orchestrator
 
       - name: Create archive and checksum
         run: |
           cd .build/artifacts
           tar -czf "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz" claude-orchestrator
+          tar -tvzf "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz" | grep -q '^-rwx' \
+            || { echo "tarball'daki binary çalıştırılabilir değil"; exit 1; }
           shasum -a 256 "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz" > "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz.sha256"
           cat "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz.sha256"
 

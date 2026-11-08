@@ -73,7 +73,7 @@ It also installs `claude-ctl` as a deprecated alias.
 
 ### From a release
 
-Download the `claude-orchestrator` binary from [Releases](https://github.com/Yuix-Networks/claude-ctl/releases)
+Download the `claude-orchestrator` binary from [Releases](https://github.com/Yuix-Networks/claude-orchestrator/releases)
 and put it on your `PATH`:
 
 ```bash

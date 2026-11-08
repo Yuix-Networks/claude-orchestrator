@@ -55,5 +55,5 @@ enum LegacyName {
 
 /// Sürüm (release etiketiyle aynı tutulur: `v<current>`).
 enum AppVersion {
-    static let current = "0.2.0"
+    static let current = "0.2.1"
 }
