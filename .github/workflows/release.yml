@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check version matches tag
+        run: |
+          grep -q "static let current = \"${GITHUB_REF_NAME#v}\"" Sources/claude-orchestrator/Output.swift \
+            || { echo "AppVersion.current etiketle (${GITHUB_REF_NAME}) aynı değil"; exit 1; }
+
       - name: Test
         run: swift test
 

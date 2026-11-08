@@ -52,3 +52,8 @@ enum Confirm {
 enum LegacyName {
     static let command = "claude-ctl"
 }
+
+/// Sürüm (release etiketiyle aynı tutulur: `v<current>`).
+enum AppVersion {
+    static let current = "0.2.0"
+}

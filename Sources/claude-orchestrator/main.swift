@@ -18,6 +18,7 @@ KULLANIM
   claude-orchestrator <komut> [argümanlar]
 
 KOMUTLAR
+  version                        Sürümü yazdırır
   new <ad> [--workdir <yol>] [--sessions-from <instance>]
                                  Instance oluşturur (isteğe bağlı: workdir, oturumlar)
   start <ad> [--folder <yol>]     Instance'ı başlatır (ayrı profil + config)
@@ -49,12 +50,17 @@ KOMUTLAR
 VERİ KONUMU
   ~/Library/Application Support/claude-ctl/
 
-Detaylı bilgi: https://github.com/akarca/claude-ctl
+Detaylı bilgi: https://github.com/Yuix-Networks/claude-ctl
 """
 
 do {
     guard let command = rawArguments.first else {
         Output.error("komut gerekli (yardım: claude-orchestrator help)", code: ExitCode.usage)
+    }
+
+    if command == "version" || command == "--version" || command == "-v" {
+        print("claude-orchestrator \(AppVersion.current)")
+        exit(ExitCode.success)
     }
 
     if command == "help" || command == "--help" || command == "-h" {

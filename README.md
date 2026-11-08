@@ -65,12 +65,15 @@ The result: several Claude instances side by side, each working on a different p
 ### Homebrew
 
 ```bash
-brew install --formula ./Formula/claude-orchestrator.rb
+brew install yuix-networks/tap/claude-orchestrator
 ```
+
+The formula lives in [Yuix-Networks/homebrew-tap](https://github.com/Yuix-Networks/homebrew-tap).
+It also installs `claude-ctl` as a deprecated alias.
 
 ### From a release
 
-Download the `claude-orchestrator` binary from [Releases](https://github.com/Yuix-Networks/claude-orchestrator/releases)
+Download the `claude-orchestrator` binary from [Releases](https://github.com/Yuix-Networks/claude-ctl/releases)
 and put it on your `PATH`:
 
 ```bash

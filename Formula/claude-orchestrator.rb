@@ -1,9 +1,9 @@
 class ClaudeOrchestrator < Formula
   desc "Run multiple Claude Desktop instances and move sessions between them"
-  homepage "https://github.com/akarca/claude-ctl"
+  homepage "https://github.com/Yuix-Networks/claude-ctl"
   # v0.2.0 etiketi atılıp release iş akışı tamamlanınca `sha256` iş akışının
   # yazdırdığı değerle güncellenmelidir (bkz. TODO.md §4).
-  url "https://github.com/akarca/claude-ctl/releases/download/v0.2.0/claude-orchestrator-0.2.0.tar.gz"
+  url "https://github.com/Yuix-Networks/claude-ctl/releases/download/v0.2.0/claude-orchestrator-0.2.0.tar.gz"
   version "0.2.0"
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
   license "MIT"
@@ -25,6 +25,6 @@ class ClaudeOrchestrator < Formula
   end
 
   test do
-    assert_match "claude-orchestrator", shell_output("#{bin}/claude-orchestrator help")
+    assert_match version.to_s, shell_output("#{bin}/claude-orchestrator --version")
   end
 end
