@@ -7,7 +7,20 @@ final class FakeLauncher: Launching {
     var runningPids: [String: Int32] = [:]
 
     func launchArguments(_ request: LaunchRequest) -> [String] { [] }
-    func isProfileLocked(profileDir: URL) -> Bool { false }
+    func isProfileLocked(profileDir: URL) -> Bool {
+        let lock = profileDir.appendingPathComponent("SingletonLock").path
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: lock)) != nil {
+            return true
+        }
+        return FileManager.default.fileExists(atPath: lock)
+    }
+    func lockHolderPid(profileDir: URL) -> Int32? {
+        let lock = profileDir.appendingPathComponent("SingletonLock")
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: lock.path) else {
+            return nil
+        }
+        return Int32(target.split(separator: "-").last.map(String.init) ?? "")
+    }
     func runningPid(profileDir: URL) -> Int32? { runningPids[profileDir.path] }
     func launch(_ request: LaunchRequest) throws { runningPids[request.profileDir] = 4242 }
 }

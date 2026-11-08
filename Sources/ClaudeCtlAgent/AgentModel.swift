@@ -39,8 +39,10 @@ public final class AgentModel {
     }
 
     /// Instance'ların güncel durumu.
+    /// Hafif yenileme: yalnızca pid canlılığı (profil boyutu hesaplanmaz —
+    /// agent 5 saniyede bir çalıştığı için pahalı bir işlemdir).
     public func refresh() -> [InstanceStatus] {
-        (try? ctl.list()) ?? []
+        (try? ctl.list(includeSizes: false)) ?? []
     }
 
     /// Bir instance için menü maddeleri.

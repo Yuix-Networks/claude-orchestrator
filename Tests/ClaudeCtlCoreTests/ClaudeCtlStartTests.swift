@@ -11,7 +11,19 @@ final class FakeLauncher: Launching {
     func launchArguments(_ request: LaunchRequest) -> [String] { [] }
 
     func isProfileLocked(profileDir: URL) -> Bool {
-        FileManager.default.fileExists(atPath: profileDir.appendingPathComponent("SingletonLock").path)
+        let lock = profileDir.appendingPathComponent("SingletonLock").path
+        if (try? FileManager.default.destinationOfSymbolicLink(atPath: lock)) != nil {
+            return true
+        }
+        return FileManager.default.fileExists(atPath: lock)
+    }
+
+    func lockHolderPid(profileDir: URL) -> Int32? {
+        let lock = profileDir.appendingPathComponent("SingletonLock")
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: lock.path) else {
+            return nil
+        }
+        return Int32(target.split(separator: "-").last.map(String.init) ?? "")
     }
 
     func runningPid(profileDir: URL) -> Int32? {
@@ -101,19 +113,40 @@ final class ClaudeCtlStartTests: XCTestCase {
         XCTAssertEqual(launcher.launchCount, 0, "çalışan instance yeniden başlatılmamalı")
     }
 
-    func testStartFailsWhenProfileIsLocked() throws {
+    func testStartFailsWhenProfileIsLockedByALiveProcess() throws {
         try ctl.new(name: "work", workdir: nil)
         let profile = paths.profileDir("work")
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
-        try Data().write(to: profile.appendingPathComponent("SingletonLock"))
+        let lock = profile.appendingPathComponent("SingletonLock")
+        try FileManager.default.createSymbolicLink(
+            at: lock,
+            withDestinationURL: URL(fileURLWithPath: "host-\(ProcessInfo.processInfo.processIdentifier)")
+        )
 
         XCTAssertThrowsError(try ctl.start(name: "work", folder: nil)) { error in
             guard case let .runtime(message) = error as? ClaudeCtlError else {
                 return XCTFail("runtime bekleniyordu: \(error)")
             }
             XCTAssertTrue(message.contains("SingletonLock"), "mesaj 'SingletonLock' içermeli: \(message)")
+            XCTAssertTrue(message.contains("pid"), "mesaj kilidi tutan pid'i içermeli: \(message)")
         }
         XCTAssertEqual(launcher.launchCount, 0)
+    }
+
+    func testStartProceedsWhenProfileHasStaleLock() throws {
+        try ctl.new(name: "work", workdir: nil)
+        let profile = paths.profileDir("work")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let lock = profile.appendingPathComponent("SingletonLock")
+        try FileManager.default.createSymbolicLink(
+            at: lock,
+            withDestinationURL: URL(fileURLWithPath: "host-999999")
+        )
+
+        let result = try ctl.start(name: "work", folder: nil)
+
+        XCTAssertFalse(result.alreadyRunning)
+        XCTAssertEqual(launcher.launchCount, 1, "bayat kilit temizlenip instance açılmalı")
     }
 
     func testStartWarnsWhenWorkdirIsMissing() throws {
@@ -194,6 +227,8 @@ final class ClaudeCtlStartTests: XCTestCase {
             InstanceState(pid: pid, startedAt: Date(), claudeVersion: nil),
             to: paths.stateFile("work")
         )
+        // Yalnızca marker ile doğrulanmış süreç sonlandırılır.
+        launcher.runningPids[paths.profileDir("work").path] = pid
 
         let result = try ctl.stop(name: "work")
 
@@ -265,6 +300,99 @@ final class ClaudeCtlStartTests: XCTestCase {
                 return XCTFail("notFound bekleniyordu: \(error)")
             }
         }
+    }
+
+    // MARK: - stop güvenliği
+
+    func testStopDoesNotKillUnrelatedProcessRecordedInState() throws {
+        // state.json'daki pid artık Claude değil; marker ile doğrulanmadığı için
+        // öldürülmemeli (PID yeniden kullanımı senaryosu).
+        let shell = Process()
+        shell.executableURL = URL(fileURLWithPath: "/bin/sh")
+        shell.arguments = ["-c", "sleep 60 >/dev/null 2>&1 & echo $!"]
+        let pipe = Pipe()
+        shell.standardOutput = pipe
+        shell.standardError = FileHandle.nullDevice
+        try shell.run()
+        let pidData = pipe.fileHandleForReading.availableData
+        shell.waitUntilExit()
+        let pidText = String(data: pidData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let pid = try XCTUnwrap(Int32(pidText))
+
+        try ctl.new(name: "work", workdir: nil)
+        try JSONFile.write(
+            InstanceState(pid: pid, startedAt: Date(), claudeVersion: nil),
+            to: paths.stateFile("work")
+        )
+
+        let result = try ctl.stop(name: "work")
+
+        XCTAssertFalse(result.wasRunning, "doğrulanmamış pid öldürülmemeli")
+        XCTAssertTrue(ProcessSignal.isAlive(pid), "ilgisiz süreç öldürülmemeli")
+        _ = try? ProcessSignal.terminate(pid)
+    }
+
+    func testStopUsesMarkerVerifiedPidEvenWithoutStateFile() throws {
+        try ctl.new(name: "work", workdir: nil)
+        launcher.runningPids[paths.profileDir("work").path] = 4242
+
+        let result = try ctl.stop(name: "work")
+
+        XCTAssertTrue(result.wasRunning)
+    }
+
+    // MARK: - tohumlama hatası
+
+    func testStartWarnsWhenSeedingFailsButStillLaunches() throws {
+        let workdir = try makeWorkdir()
+        try ctl.new(name: "work", workdir: workdir.path)
+        // Bozuk profil config'i tohumlamayı hata verdirsin.
+        try "{{{{ bozuk".write(
+            to: paths.profileDir("work").appendingPathComponent("claude_desktop_config.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let result = try ctl.start(name: "work", folder: nil)
+
+        XCTAssertNil(result.seed)
+        XCTAssertNotNil(result.warning)
+        XCTAssertTrue(result.warning?.contains("tohumlama") == true, "uyarı 'tohumlama' içermeli: \(result.warning ?? "-")")
+        XCTAssertEqual(launcher.launchCount, 1, "instance yine de açılmalı")
+    }
+
+    // MARK: - remove güvenliği
+
+    func testRemoveRefusesWhileInstanceIsRunning() throws {
+        try ctl.new(name: "work", workdir: nil)
+        launcher.runningPids[paths.profileDir("work").path] = 4242
+
+        XCTAssertThrowsError(try ctl.remove(name: "work", purge: true)) { error in
+            guard case let .runtime(message) = error as? ClaudeCtlError else {
+                return XCTFail("runtime bekleniyordu: \(error)")
+            }
+            XCTAssertTrue(message.contains("çalışıyor"), "mesaj 'çalışıyor' içermeli: \(message)")
+        }
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: paths.profileDir("work").path),
+            "çalışan instance'ın profili silinmemeli"
+        )
+    }
+
+    func testRemoveClearsStateFile() throws {
+        try ctl.new(name: "work", workdir: nil)
+        try JSONFile.write(
+            InstanceState(pid: 42, startedAt: Date(), claudeVersion: nil),
+            to: paths.stateFile("work")
+        )
+
+        try ctl.remove(name: "work", purge: false)
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: paths.stateFile("work").path),
+            "durum dosyası temizlenmeli"
+        )
     }
 
     // MARK: - logs

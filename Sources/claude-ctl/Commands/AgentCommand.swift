@@ -6,7 +6,7 @@ import Foundation
 /// `claude-ctl agent [--install|--uninstall]`
 enum AgentCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: ["install", "uninstall"])
 
         if parsed.has("uninstall") {
             try LaunchAgentInstaller().uninstall()

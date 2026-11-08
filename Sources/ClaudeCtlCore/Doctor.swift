@@ -90,13 +90,24 @@ public struct Doctor {
             ))
         }
 
+        // Çalışan bir instance'da SingletonLock normaldir; yalnızca instance
+        // durmamışken kilit varsa uyarı üret.
         let lock = profile.appendingPathComponent("SingletonLock")
+        let isRunning = state?.pid != nil && ProcessSignal.isAlive(state!.pid)
         if fileManager.fileExists(atPath: lock.path) {
-            checks.append(DoctorCheck(
-                name: "profile-lock",
-                status: .warn,
-                detail: "profil kilitli — başka bir instance kullanıyor olabilir"
-            ))
+            if isRunning {
+                checks.append(DoctorCheck(
+                    name: "profile-lock",
+                    status: .ok,
+                    detail: "kilit var (instance çalışıyor — normal)"
+                ))
+            } else {
+                checks.append(DoctorCheck(
+                    name: "profile-lock",
+                    status: .warn,
+                    detail: "bayat kilit — instance çalışmıyor ama profil kilitli"
+                ))
+            }
         } else {
             checks.append(DoctorCheck(name: "profile-lock", status: .ok, detail: "kilit yok"))
         }

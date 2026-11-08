@@ -4,7 +4,7 @@ import Foundation
 /// `claude-ctl doctor [<ad>] [--json]`
 enum DoctorCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: ["json"])
         let name = parsed.positionals.first
         let checks = try ClaudeCtl().doctor(name: name)
 

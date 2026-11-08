@@ -86,4 +86,55 @@ final class InstanceStoreTests: XCTestCase {
             "geçersiz adla config yazılmamalı"
         )
     }
+
+    func testLoadRejectsConfigWithInstanceNameOutsideTheNamePolicy() throws {
+        // Elle düzenlenmiş config'te path traversal denemesi.
+        let raw = """
+        {
+          "version": 1,
+          "instances": {
+            "../../Documents": {
+              "name": "../../Documents",
+              "workdir": null,
+              "createdAt": "2026-11-08T10:00:00Z",
+              "autoStart": false,
+              "iconBadge": null
+            }
+          }
+        }
+        """
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try raw.write(to: store.paths.configFile, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try store.load()) { error in
+            guard case .corruptConfig = error as? ClaudeCtlError else {
+                return XCTFail("corruptConfig bekleniyordu: \(error)")
+            }
+        }
+    }
+
+    func testLoadRejectsConfigWhereKeyAndNameDiffer() throws {
+        let raw = """
+        {
+          "version": 1,
+          "instances": {
+            "work": {
+              "name": "other",
+              "workdir": null,
+              "createdAt": "2026-11-08T10:00:00Z",
+              "autoStart": false,
+              "iconBadge": null
+            }
+          }
+        }
+        """
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try raw.write(to: store.paths.configFile, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try store.load()) { error in
+            guard case .corruptConfig = error as? ClaudeCtlError else {
+                return XCTFail("corruptConfig bekleniyordu: \(error)")
+            }
+        }
+    }
 }

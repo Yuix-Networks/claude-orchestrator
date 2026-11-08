@@ -62,9 +62,42 @@ public struct ProfileSeeder {
 
     private func addTrustedFolder(profileDir: URL, workdir: String) throws -> Bool {
         let url = profileDir.appendingPathComponent("claude_desktop_config.json")
-        var config = try readObject(at: url) ?? ["mcpServers": [String: Any](), "preferences": [String: Any]()]
-        var preferences = config["preferences"] as? [String: Any] ?? [:]
-        var folders = preferences["localAgentModeTrustedFolders"] as? [String] ?? []
+        var config: [String: Any]
+        switch try readObject(at: url) {
+        case .missing:
+            config = ["mcpServers": [String: Any](), "preferences": [String: Any]()]
+        case let .object(value):
+            config = value
+        case .unexpectedType:
+            // Dosya beklenmeyen yapıda: ezmek veri kaybı yaratır.
+            throw ClaudeCtlError.runtime(
+                "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+            )
+        }
+
+        var preferences: [String: Any]
+        if let existing = config["preferences"] {
+            guard let value = existing as? [String: Any] else {
+                throw ClaudeCtlError.runtime(
+                    "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+                )
+            }
+            preferences = value
+        } else {
+            preferences = [:]
+        }
+
+        var folders: [String]
+        if let existing = preferences["localAgentModeTrustedFolders"] {
+            guard let value = existing as? [String] else {
+                throw ClaudeCtlError.runtime(
+                    "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+                )
+            }
+            folders = value
+        } else {
+            folders = []
+        }
 
         let added = !folders.contains(workdir)
         if added { folders.append(workdir) }
@@ -79,16 +112,58 @@ public struct ProfileSeeder {
 
     private func addSessionPreset(profileDir: URL, workdir: String) throws -> (String?, Bool) {
         let url = profileDir.appendingPathComponent("ccd-session-presets.json")
-        var presets = try readObject(at: url) ?? ["byAccount": [String: Any]()]
-        var byAccount = presets["byAccount"] as? [String: Any] ?? [:]
+        var presets: [String: Any]
+        switch try readObject(at: url) {
+        case .missing:
+            presets = ["byAccount": [String: Any]()]
+        case let .object(value):
+            presets = value
+        case .unexpectedType:
+            throw ClaudeCtlError.runtime(
+                "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+            )
+        }
+
+        var byAccount: [String: Any]
+        if let existing = presets["byAccount"] {
+            guard let value = existing as? [String: Any] else {
+                throw ClaudeCtlError.runtime(
+                    "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+                )
+            }
+            byAccount = value
+        } else {
+            byAccount = [:]
+        }
 
         guard let accountUUID = byAccount.keys.sorted().first ?? accountUUIDFromBridgeState(profileDir: profileDir) else {
             // Hesap henüz bilinmiyor (ilk giriş yapılmamış): preset yazılmaz.
             return (nil, false)
         }
 
-        var account = byAccount[accountUUID] as? [String: Any] ?? [:]
-        var presetList = account["presets"] as? [[String: Any]] ?? []
+        var account: [String: Any]
+        if let existing = byAccount[accountUUID] {
+            guard let value = existing as? [String: Any] else {
+                throw ClaudeCtlError.runtime(
+                    "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+                )
+            }
+            account = value
+        } else {
+            account = [:]
+        }
+
+        var presetList: [[String: Any]]
+        if let existing = account["presets"] {
+            guard let value = existing as? [[String: Any]] else {
+                throw ClaudeCtlError.runtime(
+                    "profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)"
+                )
+            }
+            presetList = value
+        } else {
+            presetList = []
+        }
 
         let alreadyExists = presetList.contains { preset in
             (preset["target"] as? [String: Any])?["cwd"] as? String == workdir
@@ -115,24 +190,43 @@ public struct ProfileSeeder {
     /// `bridge-state.json` anahtarları `<workspaceId>:<accountUuid>` biçimindedir.
     private func accountUUIDFromBridgeState(profileDir: URL) -> String? {
         let url = profileDir.appendingPathComponent("bridge-state.json")
-        guard let object = try? readObject(at: url), let key = object.keys.sorted().first else { return nil }
+        guard let read = try? readObject(at: url),
+              case let .object(object) = read,
+              let key = object.keys.sorted().first
+        else { return nil }
         guard let last = key.split(separator: ":").last else { return nil }
         return String(last)
     }
 
     // MARK: - JSON yardımcıları
 
-    private func readObject(at url: URL) throws -> [String: Any]? {
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    /// JSON nesnesi okuma sonucu: dosya yok / nesne / beklenmeyen yapı.
+    private enum ObjectRead {
+        case missing
+        case object([String: Any])
+        case unexpectedType
+    }
+
+    private func readObject(at url: URL) throws -> ObjectRead {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .missing }
         do {
             let data = try Data(contentsOf: url)
-            return try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return .unexpectedType
+            }
+            return .object(object)
         } catch {
             throw ClaudeCtlError.corruptConfig(url)
         }
     }
 
     private func writeObject(_ object: [String: Any], to url: URL) throws {
+        // İlk yeniden yazmadan önce yedek al (veri kaybı koruması).
+        let backup = url.appendingPathExtension("bak")
+        if FileManager.default.fileExists(atPath: url.path),
+           !FileManager.default.fileExists(atPath: backup.path) {
+            try? FileManager.default.copyItem(at: url, to: backup)
+        }
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),

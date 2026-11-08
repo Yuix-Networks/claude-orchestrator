@@ -4,7 +4,7 @@ import Foundation
 /// `claude-ctl start <ad> [--folder <yol>]`
 enum StartCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: ["folder"])
         let name = try parsed.requirePositional(0, name: "instance adı", command: "start")
 
         let ctl = ClaudeCtl()

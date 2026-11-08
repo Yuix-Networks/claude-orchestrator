@@ -32,12 +32,24 @@ final class LauncherTests: XCTestCase {
 
         XCTAssertEqual(arguments, [
             "open", "-n", "-a", "/Applications/Claude.app",
-            "--args", "--user-data-dir=/p",
-            "--env", "CLAUDE_CONFIG_DIR=/c"
+            "--env", "CLAUDE_CONFIG_DIR=/c",
+            "--args", "--user-data-dir=/p"
         ])
     }
 
-    func testLaunchArgumentsAppendExtraArgsAfterEnvironment() {
+    func testEnvironmentOptionComesBeforeArgsSoOpenConsumesIt() throws {
+        let request = LaunchRequest(appPath: "/Applications/Claude.app", profileDir: "/p", codeDir: "/c")
+        let arguments = makeLauncher().launchArguments(request)
+
+        // `open --args` sonrasındaki her şey uygulamaya argv olarak gider.
+        // --env bu noktadan önce olmalı, yoksa uygulama `--env` ve değerini
+        // argv'sında görür (Electron bunu açılacak dosya sanır).
+        let envIndex = try XCTUnwrap(arguments.firstIndex(of: "--env"))
+        let argsIndex = try XCTUnwrap(arguments.firstIndex(of: "--args"))
+        XCTAssertLessThan(envIndex, argsIndex, "--env --args'tan önce olmalı")
+    }
+
+    func testLaunchArgumentsAppendExtraArgsAfterArgs() {
         let request = LaunchRequest(
             appPath: "/Applications/Claude.app",
             profileDir: "/p",
@@ -48,8 +60,8 @@ final class LauncherTests: XCTestCase {
 
         XCTAssertEqual(arguments, [
             "open", "-n", "-a", "/Applications/Claude.app",
-            "--args", "--user-data-dir=/p",
             "--env", "CLAUDE_CONFIG_DIR=/c",
+            "--args", "--user-data-dir=/p",
             "/tmp/proje"
         ])
     }
@@ -74,9 +86,56 @@ final class LauncherTests: XCTestCase {
         XCTAssertFalse(arguments.contains("open"))
         XCTAssertEqual(arguments, [
             "-n", "-a", "/Applications/Claude.app",
-            "--args", "--user-data-dir=/p",
-            "--env", "CLAUDE_CONFIG_DIR=/c"
+            "--env", "CLAUDE_CONFIG_DIR=/c",
+            "--args", "--user-data-dir=/p"
         ])
+    }
+
+    func testRunningPidIgnoresElectronHelperProcesses() {
+        let launcher = makeLauncher(entries: [
+            (100, "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper --type=gpu-process --user-data-dir=\(profileDir.path)")
+        ])
+
+        XCTAssertNil(
+            launcher.runningPid(profileDir: profileDir),
+            "yardımcı süreçler ana süreç sayılmamalı"
+        )
+    }
+
+    func testLockHolderPidIsReadFromSingletonLockTarget() throws {
+        try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
+        let lock = profileDir.appendingPathComponent("SingletonLock")
+        try FileManager.default.createSymbolicLink(
+            at: lock,
+            withDestinationURL: URL(fileURLWithPath: "serdar-mbp-4242")
+        )
+
+        XCTAssertEqual(makeLauncher().lockHolderPid(profileDir: profileDir), 4242)
+    }
+
+    func testLockHolderPidIsNilWhenLockIsMissing() {
+        XCTAssertNil(makeLauncher().lockHolderPid(profileDir: profileDir))
+    }
+
+    func testLaunchSurfacesOpenErrorMessage() throws {
+        let failingOpen = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-ctl-fake-open-\(UUID().uuidString)")
+        try "#!/bin/sh\necho 'Unable to find application named Fake' >&2\nexit 1\n".write(
+            to: failingOpen,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: failingOpen.path)
+
+        let launcher = Launcher(appPath: "/Applications/Claude.app", openPath: failingOpen.path)
+        let request = LaunchRequest(appPath: "/Applications/Claude.app", profileDir: "/p", codeDir: "/c")
+
+        XCTAssertThrowsError(try launcher.launch(request)) { error in
+            guard case let .runtime(message) = error as? ClaudeCtlError else {
+                return XCTFail("runtime bekleniyordu: \(error)")
+            }
+            XCTAssertTrue(message.contains("Unable to find application"), "open hatası aktarılmalı: \(message)")
+        }
     }
 
     func testIsProfileLockedReturnsTrueWhenSingletonLockExists() throws {

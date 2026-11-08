@@ -74,6 +74,21 @@ else
     fail "profil dizininde Cookies yok"
 fi
 
+step "Claude Code yapılandırması ayrışması"
+CODE1="$HOME/Library/Application Support/claude-ctl/instances/$SMOKE_NAME/claude-code"
+if [ -d "$CODE1" ]; then
+    ok "ayrı CLAUDE_CONFIG_DIR: $CODE1"
+else
+    fail "claude-code dizini oluşmadı"
+fi
+# Not: Claude Code CLI, instance giriş yapılana kadar spawn olmayabilir; bu
+# durumda dizin boş kalır (beklenen). Doluysa ayrışma doğrulanmış olur.
+if [ -n "$(ls -A "$CODE1" 2>/dev/null)" ]; then
+    ok "Claude Code yapılandırması instance dizininde"
+else
+    ok "Claude Code dizini boş (CLI henüz çalışmadı — giriş sonrası dolar)"
+fi
+
 step "list --json"
 LIST_JSON="$("$BIN" list --json 2>/dev/null)"
 RUNNING="$(json_field "$LIST_JSON" "$SMOKE_NAME" isRunning)"

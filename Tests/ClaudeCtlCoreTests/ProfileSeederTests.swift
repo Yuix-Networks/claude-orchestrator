@@ -117,7 +117,10 @@ final class ProfileSeederTests: XCTestCase {
     }
 
     func testSeedDiscoversAccountFromBridgeState() throws {
-        try writeJSON(["byAccount": []], to: profileDir.appendingPathComponent("ccd-session-presets.json"))
+        try writeJSON(
+            ["byAccount": [String: Any]() as [String: Any]],
+            to: profileDir.appendingPathComponent("ccd-session-presets.json")
+        )
         try writeJSON(["ws-1:acct-9": [:]], to: profileDir.appendingPathComponent("bridge-state.json"))
 
         let result = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
@@ -149,5 +152,48 @@ final class ProfileSeederTests: XCTestCase {
             FileManager.default.fileExists(atPath: profileDir.appendingPathComponent("claude_desktop_config.json").path),
             "başarısız seed dosya yazmamalı"
         )
+    }
+
+    // MARK: - Veri kaybı koruması
+
+    func testSeedRefusesToOverwriteConfigWithUnexpectedShape() throws {
+        let configURL = profileDir.appendingPathComponent("claude_desktop_config.json")
+        try writeJSON([["dizi", "elemanı"]], to: configURL)
+        let before = try Data(contentsOf: configURL)
+
+        XCTAssertThrowsError(try seeder.seed(profileDir: profileDir, workdir: workdir.path)) { error in
+            guard case .runtime = error as? ClaudeCtlError else {
+                return XCTFail("runtime bekleniyordu: \(error)")
+            }
+        }
+
+        let after = try Data(contentsOf: configURL)
+        XCTAssertEqual(before, after, "beklenmeyen yapıdaki dosya ezilmemeli")
+    }
+
+    func testSeedRefusesToOverwritePresetsWithUnexpectedShape() throws {
+        let presetsURL = profileDir.appendingPathComponent("ccd-session-presets.json")
+        try writeJSON(["byAccount": "metin"], to: presetsURL)
+        let before = try Data(contentsOf: presetsURL)
+
+        XCTAssertThrowsError(try seeder.seed(profileDir: profileDir, workdir: workdir.path)) { error in
+            guard case .runtime = error as? ClaudeCtlError else {
+                return XCTFail("runtime bekleniyordu: \(error)")
+            }
+        }
+
+        XCTAssertEqual(try Data(contentsOf: presetsURL), before, "preset dosyası ezilmemeli")
+    }
+
+    func testSeedKeepsBackupOfExistingProfileFiles() throws {
+        let configURL = profileDir.appendingPathComponent("claude_desktop_config.json")
+        try writeJSON(["preferences": ["menuBarEnabled": true]], to: configURL)
+
+        _ = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
+
+        let backup = profileDir.appendingPathComponent("claude_desktop_config.json.bak")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path), "yedek dosya oluşmalı")
+        let backupJSON = try readJSON(backup)
+        XCTAssertEqual((backupJSON["preferences"] as? [String: Any])?["menuBarEnabled"] as? Bool, true)
     }
 }

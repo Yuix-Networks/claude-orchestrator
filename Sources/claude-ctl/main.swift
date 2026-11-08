@@ -6,7 +6,7 @@ let rawArguments = Array(CommandLine.arguments.dropFirst())
 
 do {
     guard let command = rawArguments.first else {
-        Output.error("komut gerekli: new, start, stop", code: ExitCode.usage)
+        Output.error("komut gerekli: new, start, stop, list, status, logs, open, signin, doctor, remove, agent", code: ExitCode.usage)
     }
 
     let rest = Array(rawArguments.dropFirst())
@@ -39,7 +39,7 @@ do {
     }
 } catch let error as ClaudeCtlError {
     switch error {
-    case let .usage(message), let .invalidName(message):
+    case let .usage(message), let .invalidName(message), let .notFound(message):
         // Kullanıcı hatalı argüman verdi — kullanım hatası (exit 2).
         Output.error(message, code: ExitCode.usage)
     default:

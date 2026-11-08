@@ -93,13 +93,17 @@ display the sign-in guide. The agent is a single process; it refreshes every 5 s
 
 ```
 open -n -a /Applications/Claude.app \
-     --args --user-data-dir=~/Library/Application\ Support/claude-ctl/instances/<name>/profile \
-     --env  CLAUDE_CONFIG_DIR=~/Library/Application\ Support/claude-ctl/instances/<name>/claude-code
+     --env  CLAUDE_CONFIG_DIR=~/Library/Application\ Support/claude-ctl/instances/<name>/claude-code \
+     --args --user-data-dir=~/Library/Application\ Support/claude-ctl/instances/<name>/profile
 ```
 
 `-n` asks macOS for a new application instance, so the second Claude does not join the
 first one. The per-instance data path comes from Claude's own Electron profile, and the
 Claude Code CLI is redirected with `CLAUDE_CONFIG_DIR`.
+
+`--env` **must** come before `--args`: everything after `--args` is handed to the app as
+argv, so a misplaced `--env` would reach Claude as a stray argument instead of being
+consumed by `open`.
 
 Before starting, the instance profile is seeded so the Code tab opens in the right project:
 
@@ -133,6 +137,9 @@ Before starting, the instance profile is seeded so the Code tab opens in the rig
   close the others while signing in (or use `claude-ctl signin <name> --restart`).
 - **Disk usage.** Each instance keeps its own Claude Code CLI download (~500 MB) plus
   its profile.
+- **The Claude Code directory fills up after sign-in.** The per-instance
+  `claude-code/` folder stays empty until the instance is signed in, because the CLI
+  only starts once you use a Claude Code session in that instance.
 - Claude Desktop itself enforces some single-instance behaviour; if an instance refuses
   to start, `claude-ctl doctor <name>` explains why.
 

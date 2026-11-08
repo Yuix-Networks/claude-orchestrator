@@ -139,6 +139,12 @@ public final class ClaudeCtl {
         try FileManager.default.createDirectory(at: paths.profileDir(name), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: paths.codeDir(name), withIntermediateDirectories: true)
 
+        // Profil tohumlanır (güvenli klasörler). Session preset hesap bilinmiyorsa
+        // yazılamaz; o aşamada `start` yeniden dener.
+        if let workdir, FileManager.default.fileExists(atPath: workdir) {
+            _ = try? seeder.seed(profileDir: paths.profileDir(name), workdir: workdir)
+        }
+
         return instance
     }
 
@@ -151,6 +157,11 @@ public final class ClaudeCtl {
         let codeDir = paths.codeDir(name)
 
         if let pid = launcher.runningPid(profileDir: profileDir) {
+            // Durum dosyası kaybolmuş olabilir; yeniden yaz.
+            try? JSONFile.write(
+                InstanceState(pid: pid, startedAt: Date(), claudeVersion: ClaudeApp.version(appPath: appPath)),
+                to: paths.stateFile(name)
+            )
             return StartResult(
                 instance: instance,
                 pid: pid,
@@ -161,16 +172,27 @@ public final class ClaudeCtl {
         }
 
         if launcher.isProfileLocked(profileDir: profileDir) {
-            throw ClaudeCtlError.runtime(
-                "profil kilitli: \(profileDir.path) (SingletonLock) — başka bir Claude instance'ı bu profili kullanıyor"
-            )
+            // Kilit, çökmüş bir instance'dan kalmış olabilir: kilidi tutan pid
+            // artık yaşamıyorsa kilit bayattır, temizlenip devam edilir.
+            let holder = launcher.lockHolderPid(profileDir: profileDir)
+            if let holder, ProcessSignal.isAlive(holder) {
+                throw ClaudeCtlError.runtime(
+                    "profil kilitli: \(profileDir.path) (SingletonLock) — pid \(holder) bu profili kullanıyor"
+                )
+            }
+            try? FileManager.default.removeItem(at: profileDir.appendingPathComponent("SingletonLock"))
         }
 
         var warning: String?
         var seed: SeedResult?
         if let workdir = instance.workdir {
             if FileManager.default.fileExists(atPath: workdir) {
-                seed = try seeder.seed(profileDir: profileDir, workdir: workdir)
+                do {
+                    seed = try seeder.seed(profileDir: profileDir, workdir: workdir)
+                } catch {
+                    // Tohumlama başarısız olsa da instance açılmalı.
+                    warning = "tohumlama başarısız: \(error.localizedDescription)"
+                }
             } else {
                 warning = "workdir bulunamadı: \(workdir) — tohumlama atlandı"
             }
@@ -219,27 +241,28 @@ public final class ClaudeCtl {
 
     /// Instance'ı durdurur.
     public func stop(name: String) throws -> StopResult {
+        try NameValidator.validate(name)
         let stateFile = paths.stateFile(name)
-        guard let state = try JSONFile.read(InstanceState.self, from: stateFile) else {
-            return StopResult(wasRunning: false, forced: false)
-        }
 
-        guard ProcessSignal.isAlive(state.pid) else {
+        // Yalnızca profil işaretiyle doğrulanmış süreç sonlandırılır.
+        // state.json'daki pid PID yeniden kullanımı nedeniyle başka bir sürece
+        // ait olabilir; bu yüzden tek başına güvenilir bir kaynak değildir.
+        guard let pid = launcher.runningPid(profileDir: paths.profileDir(name)) else {
             try? FileManager.default.removeItem(at: stateFile)
             return StopResult(wasRunning: false, forced: false)
         }
 
-        ProcessSignal.terminate(state.pid)
+        ProcessSignal.terminate(pid)
 
         let deadline = Date().addingTimeInterval(5)
         while Date() < deadline {
-            if !ProcessSignal.isAlive(state.pid) { break }
+            if !ProcessSignal.isAlive(pid) { break }
             Thread.sleep(forTimeInterval: 0.1)
         }
 
         var forced = false
-        if ProcessSignal.isAlive(state.pid) {
-            ProcessSignal.forceKill(state.pid)
+        if ProcessSignal.isAlive(pid) {
+            ProcessSignal.forceKill(pid)
             forced = true
         }
 
@@ -253,8 +276,14 @@ public final class ClaudeCtl {
     ///
     /// - Parameter purge: `true` ise profil klasörü de diskinten silinir.
     ///   `false` ise veriler korunur (instance yeniden oluşturulduğunda geri gelir).
-    public func remove(name: String, purge: Bool) throws {
+    public func remove(name: String, purge: Bool, force: Bool = false) throws {
         _ = try store.instance(named: name)
+
+        if !force, launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
+            throw ClaudeCtlError.runtime(
+                "instance çalışıyor: \(name) — önce 'claude-ctl stop \(name)' çalıştır (zorlamak için: --force)"
+            )
+        }
 
         if purge {
             let instanceDir = paths.instanceDir(name)
@@ -264,16 +293,17 @@ public final class ClaudeCtl {
         }
 
         try store.remove(named: name)
+        try? FileManager.default.removeItem(at: paths.stateFile(name))
     }
 
     // MARK: - list / status
 
     /// Tüm instance'ların durumu (ada göre sıralı).
-    public func list() throws -> [InstanceStatus] {
+    public func list(includeSizes: Bool = true) throws -> [InstanceStatus] {
         let config = try store.load()
         return config.instances.values
             .sorted { $0.name < $1.name }
-            .map { status(for: $0) }
+            .map { status(for: $0, includeSize: includeSizes) }
     }
 
     /// Tek instance'ın durumu.
@@ -282,7 +312,7 @@ public final class ClaudeCtl {
         return status(for: instance)
     }
 
-    private func status(for instance: Instance) -> InstanceStatus {
+    private func status(for instance: Instance, includeSize: Bool = true) -> InstanceStatus {
         let profile = paths.profileDir(instance.name)
         let pid = launcher.runningPid(profileDir: profile)
         let stateFile = paths.stateFile(instance.name)
@@ -300,7 +330,7 @@ public final class ClaudeCtl {
             isRunning: pid != nil,
             pid: pid,
             startedAt: pid == nil ? nil : state?.startedAt,
-            profileSizeBytes: Doctor(paths: paths, appPath: appPath).directorySize(profile),
+            profileSizeBytes: includeSize ? Doctor(paths: paths, appPath: appPath).directorySize(profile) : 0,
             accountSignedIn: FileManager.default.fileExists(atPath: cookies.path)
         )
     }

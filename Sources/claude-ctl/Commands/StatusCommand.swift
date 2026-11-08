@@ -4,7 +4,7 @@ import Foundation
 /// `claude-ctl status <ad> [--json]`
 enum StatusCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: ["json"])
         let name = try parsed.requirePositional(0, name: "instance adı", command: "status")
         let ctl = ClaudeCtl()
         let status = try ctl.status(name: name)
@@ -16,7 +16,7 @@ enum StatusCommand {
                 "isRunning": status.isRunning,
                 "pid": status.pid.map { Int($0) } ?? NSNull(),
                 "startedAt": status.startedAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
-                "profileSizeBytes": String(status.profileSizeBytes),
+                "profileSizeBytes": status.profileSizeBytes,
                 "accountSignedIn": status.accountSignedIn,
                 "profileDir": ctl.paths.profileDir(name).path
             ])

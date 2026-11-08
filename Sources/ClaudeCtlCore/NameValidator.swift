@@ -6,7 +6,7 @@ import Foundation
 /// boşluk içeremez; büyük harf ve Unicode kabul edilmez.
 public enum NameValidator {
     /// `[a-z0-9][a-z0-9-]{0,31}` — 1-32 karakter, küçük harf/rakam/tire.
-    public static let pattern = "^[a-z0-9][a-z0-9-]{0,31}$"
+    public static let pattern = "^[a-z0-9][a-z0-9-]{0,31}\\z"
 
     /// Ad geçerli değilse `ClaudeCtlError.invalidName` fırlatır.
     public static func validate(_ name: String) throws {

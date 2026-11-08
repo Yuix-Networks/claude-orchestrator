@@ -9,8 +9,20 @@ public final class InstanceStore {
     }
 
     /// Config dosyasını okur. Dosya yoksa boş config döner.
+    ///
+    /// Elle düzenlenmiş config'teki geçersiz instance adları (path traversal
+    /// riski) reddedilir: ad politikası dışındaki bir ad, instance kökünün
+    /// dışına yol türetmek için kullanılabilir.
     public func load() throws -> Config {
-        try JSONFile.read(Config.self, from: paths.configFile) ?? Config()
+        guard let config = try JSONFile.read(Config.self, from: paths.configFile) else {
+            return Config()
+        }
+        for (key, instance) in config.instances {
+            guard NameValidator.isValid(key), key == instance.name else {
+                throw ClaudeCtlError.corruptConfig(paths.configFile)
+            }
+        }
+        return config
     }
 
     /// Config dosyasını yazar.

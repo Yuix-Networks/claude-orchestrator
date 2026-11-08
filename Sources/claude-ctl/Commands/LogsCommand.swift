@@ -4,16 +4,16 @@ import Foundation
 /// `claude-ctl logs <ad> [-n N] [-f]`
 enum LogsCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: ["lines", "follow"])
         let name = try parsed.requirePositional(0, name: "instance adı", command: "logs")
-        let limit = Int(parsed.optionalFlag("n") ?? "50") ?? 50
+        let limit = Int(parsed.optionalFlag("lines") ?? "50") ?? 50
         let ctl = ClaudeCtl()
 
         for line in try ctl.logs(name: name, lines: limit) {
             Output.line(line)
         }
 
-        guard parsed.has("f") else { return }
+        guard parsed.has("follow") else { return }
 
         // Canlı takip: yeni satırları yazdır.
         let logFile = LogReader.defaultLogDirectory.appendingPathComponent("main.log")

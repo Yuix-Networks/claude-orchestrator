@@ -4,7 +4,7 @@ import Foundation
 /// `claude-ctl stop <ad>`
 enum StopCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: [])
         let name = try parsed.requirePositional(0, name: "instance adı", command: "stop")
 
         let ctl = ClaudeCtl()

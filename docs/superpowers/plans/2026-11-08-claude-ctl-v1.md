@@ -4,7 +4,7 @@
 
 **Goal:** `/Applications/Claude.app`'i aynı anda birbirinden bağımsız N instance olarak çalıştıran, her instance'a ayrı profil / ayrı `~/.claude` / ayrı hesap / ayrı workdir / ayrı Dock tile'ı sağlayan macOS CLI aracı.
 
-**Architecture:** Tek Swift binary, iki mod (`claude-ctl` CLI, `claude-ctl agent` menü çubuğu). Çekirdek mantık `ClaudeCtlCore` kütüphanesinde (AppKit'siz, test edilebilir); agent mantığı `ClaudeCtlAgent` kütüphanesinde. Instance ayrıştırması `open -n -a /Applications/Claude.app --args --user-data-dir=<profile> --env CLAUDE_CONFIG_DIR=<codeDir>` ile yapılır — orijinal bundle'e hiç dokunulmaz.
+**Architecture:** Tek Swift binary, iki mod (`claude-ctl` CLI, `claude-ctl agent` menü çubuğu). Çekirdek mantık `ClaudeCtlCore` kütüphanesinde (AppKit'siz, test edilebilir); agent mantığı `ClaudeCtlAgent` kütüphanesinde. Instance ayrıştırması `open -n -a /Applications/Claude.app --env CLAUDE_CONFIG_DIR=<codeDir> --args --user-data-dir=<profile>` ile yapılır — orijinal bundle'e hiç dokunulmaz.
 
 **Tech Stack:** Swift 6.0 toolchain, SwiftPM, XCTest, Foundation + AppKit, macOS 13+ (Ventura). Üçüncü parti bağımlılık yok.
 
@@ -17,8 +17,11 @@
 - **MUTLAK KURAL:** `/Applications/Claude.app` bundle'ine (veya içindeki hiçbir dosyaya) asla yazma, silme, kopyalama, yamala veya yeniden imzalama.
 - Instance veri kökü: `~/Library/Application Support/claude-ctl/`.
 - Launch komutu tam olarak bu biçimde kurulur (argüman sırası önemli):
-  `open -n -a /Applications/Claude.app --args --user-data-dir=<profile> --env CLAUDE_CONFIG_DIR=<codeDir>`
+  `open -n -a /Applications/Claude.app --env CLAUDE_CONFIG_DIR=<codeDir> --args --user-data-dir=<profile>`
   (ek `--folder <yol>` yalnızca `start --folder` ile verilirse `--args` içine eklenir).
+  **`--env` her zaman `--args`'tan önce gelir** — `open --args` sonrasındaki her şey
+  uygulamaya argv olarak gider; `--env` yanlış yerde kalırsa Claude `--env` ve değerini
+  argv'sında görür.
 - Exit code: `0` başarılı, `1` çalışma (runtime) hatası, `2` kullanım (usage) hatası.
 - Instance adı regex'i: `^[a-z0-9][a-z0-9-]{0,31}$` (`..`, `/`, boş, 32+ karakter reddedilir).
 - Claude sürümü `/Applications/Claude.app/Contents/Info.plist` → `CFBundleShortVersionString` okunarak tespit edilir.

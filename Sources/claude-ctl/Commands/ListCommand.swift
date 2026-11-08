@@ -4,7 +4,7 @@ import Foundation
 /// `claude-ctl list [--json]`
 enum ListCommand {
     static func run(_ args: [String]) throws {
-        let parsed = Arguments(args)
+        let parsed = try Arguments(args, allowed: ["json"])
         let statuses = try ClaudeCtl().list()
 
         if parsed.has("json") {
@@ -16,7 +16,7 @@ enum ListCommand {
                         "isRunning": status.isRunning,
                         "pid": status.pid.map { Int($0) } ?? NSNull(),
                         "startedAt": status.startedAt.map { ISO8601DateFormatter().string(from: $0) } ?? NSNull(),
-                        "profileSizeBytes": String(status.profileSizeBytes),
+                        "profileSizeBytes": status.profileSizeBytes,
                         "accountSignedIn": status.accountSignedIn
                     ] as [String: Any]
                 }
