@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
+      - name: Build universal binary
+        # `swift build --arch` birleşik (universal) ürün üretmiyor; xcodebuild
+        # universal binary üretir.
+        run: |
+          xcodebuild -scheme claude-ctl -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -derivedDataPath .build/xcode \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
+          mkdir -p .build/artifacts
+          BIN="$(find .build/xcode/Build/Products/Release -name claude-ctl -type f | head -1)"
+          test -n "$BIN"
+          cp "$BIN" .build/artifacts/claude-ctl
+          lipo -info .build/artifacts/claude-ctl
+
+      - name: Create archive and checksum
+        run: |
+          cd .build/artifacts
+          tar -czf "claude-ctl-${GITHUB_REF_NAME#v}.tar.gz" claude-ctl
+          shasum -a 256 "claude-ctl-${GITHUB_REF_NAME#v}.tar.gz" > "claude-ctl-${GITHUB_REF_NAME#v}.tar.gz.sha256"
+          cat "claude-ctl-${GITHUB_REF_NAME#v}.tar.gz.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-ctl
+          path: .build/artifacts/
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            ".build/artifacts/claude-ctl-${GITHUB_REF_NAME#v}.tar.gz" \
+            ".build/artifacts/claude-ctl-${GITHUB_REF_NAME#v}.tar.gz.sha256" \
+            --title "claude-ctl ${GITHUB_REF_NAME}" \
+            --generate-notes

@@ -4,7 +4,7 @@
 
 **Goal:** `/Applications/Claude.app`'i aynı anda birbirinden bağımsız N instance olarak çalıştıran, her instance'a ayrı profil / ayrı `~/.claude` / ayrı hesap / ayrı workdir / ayrı Dock tile'ı sağlayan macOS CLI aracı.
 
-**Architecture:** Tek Swift binary, iki mod (`claude-ctl` CLI, `claude-ctl agent` menü çubuğu). Çekirdek mantık `ClaudeCtlCore` kütüphanesinde (AppKit'siz, test edilebilir); agent mantığı `ClaudeCtlAgent` kütüphanesinde. Instance ayrıştırması `open -n -a /Applications/Claude.app --args --user-data-dir=<profile> --env CLAUDE_CONFIG_DIR=<codeDir>` ile yapılır — orijinal bundle'e hiç dokunulmaz.
+**Architecture:** Tek Swift binary, iki mod (`claude-ctl` CLI, `claude-ctl agent` menü çubuğu). Çekirdek mantık `ClaudeCtlCore` kütüphanesinde (AppKit'siz, test edilebilir); agent mantığı `ClaudeCtlAgent` kütüphanesinde. Instance ayrıştırması `open -n -a /Applications/Claude.app --env CLAUDE_CONFIG_DIR=<codeDir> --args --user-data-dir=<profile>` ile yapılır — orijinal bundle'e hiç dokunulmaz.
 
 **Tech Stack:** Swift 6.0 toolchain, SwiftPM, XCTest, Foundation + AppKit, macOS 13+ (Ventura). Üçüncü parti bağımlılık yok.
 
@@ -17,8 +17,11 @@
 - **MUTLAK KURAL:** `/Applications/Claude.app` bundle'ine (veya içindeki hiçbir dosyaya) asla yazma, silme, kopyalama, yamala veya yeniden imzalama.
 - Instance veri kökü: `~/Library/Application Support/claude-ctl/`.
 - Launch komutu tam olarak bu biçimde kurulur (argüman sırası önemli):
-  `open -n -a /Applications/Claude.app --args --user-data-dir=<profile> --env CLAUDE_CONFIG_DIR=<codeDir>`
+  `open -n -a /Applications/Claude.app --env CLAUDE_CONFIG_DIR=<codeDir> --args --user-data-dir=<profile>`
   (ek `--folder <yol>` yalnızca `start --folder` ile verilirse `--args` içine eklenir).
+  **`--env` her zaman `--args`'tan önce gelir** — `open --args` sonrasındaki her şey
+  uygulamaya argv olarak gider; `--env` yanlış yerde kalırsa Claude `--env` ve değerini
+  argv'sında görür.
 - Exit code: `0` başarılı, `1` çalışma (runtime) hatası, `2` kullanım (usage) hatası.
 - Instance adı regex'i: `^[a-z0-9][a-z0-9-]{0,31}$` (`..`, `/`, boş, 32+ karakter reddedilir).
 - Claude sürümü `/Applications/Claude.app/Contents/Info.plist` → `CFBundleShortVersionString` okunarak tespit edilir.
@@ -367,7 +370,7 @@ Scripts/smoke.sh          # canlı E2E doğrulama betiği
   `NewCommand`: `--workdir <yol>` zorunlu; `--workdir` yoksa `Output.error("new: --workdir zorunlu", .usage)`.
   `StartCommand`: `--folder <yol>` opsiyonel.
   `StopCommand`: isim zorunlu.
-  Tüm komutlar: `ClaudeCtlError.usage` → exit 2, diğer hatalar → exit 1, hata mesajı stderr'e `hata: <mesaj>` olarak.
+  Tüm komutlar: `ClaudeCtlError.usage` ve `.invalidName` → exit 2 (kullanım hatası), diğer hatalar → exit 1, hata mesajı stderr'e `hata: <mesaj>` olarak.
 
 - [ ] **Step 5: Testleri koş, hepsinin geçtiğini gör**
 
@@ -470,6 +473,11 @@ Scripts/smoke.sh          # canlı E2E doğrulama betiği
   `open <ad> [--target workdir|profile]`.
   `signin <ad>` → `instructions` satırlarını numaralı yaz.
   `doctor [<ad>]` → kontrolleri listeler; herhangi biri `fail` ise exit 1, hepsi `ok`/`warn` ise exit 0.
+
+  **Task 6 sırasında eklendi:** `remove <ad> [--purge]` — instance'ı config'den siler,
+  `--purge` profil klasörünü de diskten siler. Plan ve spec'te instance silme yolu
+  yoktu; Task 9'un smoke betiği bunu temizleyemiyordu ve kullanıcı elle config
+  düzenlemek zorunda kalıyordu.
 
 - [ ] **Step 7: Testleri koş, hepsinin geçtiğini gör**
 
@@ -638,7 +646,7 @@ Scripts/smoke.sh          # canlı E2E doğrulama betiği
 - [ ] **Step 1: `Scripts/smoke.sh` yaz**
 
   Bash, `set -euo pipefail`. Adımlar:
-  1. `BIN` = `build/release/claude-ctl` (yoksa `swift build -c release` ile üret).
+  1. `BIN` = `.build/release/claude-ctl` (yoksa `swift build -c release` ile üret).
   2. `WORK=$(mktemp -d)`; `SMOKE_NAME="smoke-$$"`.
   3. `$BIN new "$SMOKE_NAME" --workdir "$WORK"` → exit 0.
   4. `$BIN start "$SMOKE_NAME"` → exit 0; 10 sn bekle.
