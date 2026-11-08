@@ -20,15 +20,18 @@ final class DoctorTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    private func makeDoctor(diskWarningBytes: Int64 = 5 * 1024 * 1024 * 1024) -> Doctor {
-        Doctor(paths: paths, diskWarningBytes: diskWarningBytes)
+    private func makeDoctor(
+        diskWarningBytes: Int64 = 5 * 1024 * 1024 * 1024,
+        version: String? = "4.4212.0"
+    ) -> Doctor {
+        Doctor(paths: paths, diskWarningBytes: diskWarningBytes, versionProvider: { version })
     }
 
     func testWarnsWhenClaudeVersionChangedSinceStart() throws {
         let instance = Instance(name: "work", workdir: nil)
         let state = InstanceState(pid: 42, startedAt: Date(), claudeVersion: "1.0.0")
 
-        let checks = makeDoctor().checks(for: instance, state: state)
+        let checks = makeDoctor(version: "4.4212.0").checks(for: instance, state: state)
 
         let version = checks.first { $0.name == "claude-version" }
         XCTAssertEqual(version?.status, .warn)
@@ -37,10 +40,9 @@ final class DoctorTests: XCTestCase {
 
     func testReportsOkWhenClaudeVersionUnchanged() throws {
         let instance = Instance(name: "work", workdir: nil)
-        let current = ClaudeApp.version() ?? "4.0.0"
-        let state = InstanceState(pid: 42, startedAt: Date(), claudeVersion: current)
+        let state = InstanceState(pid: 42, startedAt: Date(), claudeVersion: "4.4212.0")
 
-        let checks = makeDoctor().checks(for: instance, state: state)
+        let checks = makeDoctor(version: "4.4212.0").checks(for: instance, state: state)
 
         XCTAssertEqual(checks.first { $0.name == "claude-version" }?.status, .ok)
     }

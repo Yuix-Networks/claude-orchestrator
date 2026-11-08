@@ -28,17 +28,21 @@ public struct Doctor {
     public let appPath: String
     public let diskWarningBytes: Int64
     public let fileManager: FileManager
+    /// Kurulu Claude sürümünü verir (testlerde enjekte edilebilir).
+    public let versionProvider: () -> String?
 
     public init(
         paths: Paths,
         appPath: String = ClaudeApp.defaultPath,
         diskWarningBytes: Int64 = Doctor.defaultDiskWarningBytes,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        versionProvider: (() -> String?)? = nil
     ) {
         self.paths = paths
         self.appPath = appPath
         self.diskWarningBytes = diskWarningBytes
         self.fileManager = fileManager
+        self.versionProvider = versionProvider ?? { ClaudeApp.version(appPath: appPath) }
     }
 
     /// Uygulama düzeyi kontroller (Claude kurulu mu?).
@@ -57,7 +61,7 @@ public struct Doctor {
 
         // Sürüm değişikliği: instance eski sürümle başlatılmış olabilir.
         if let recorded = state?.claudeVersion {
-            if let current = ClaudeApp.version(appPath: appPath), current != recorded {
+            if let current = versionProvider(), current != recorded {
                 checks.append(DoctorCheck(
                     name: "claude-version",
                     status: .warn,
