@@ -37,6 +37,8 @@ KOMUTLAR
                                  Kayıtlı projeleri projects.json biçiminde yazar
                                  Tüm instance'larda aynı projeler (Desktop'ta "environment");
                                  takma ad: env
+  memory status | link [--instance <ad>] [--force] | unlink
+                                 ~/.claude/CLAUDE.md'yi tüm instance'larla paylaşır
   session list [--instance <ad>] [--project <yol>] [--running] [--json]
   session show <id> [--instance <ad>] [--json]
   session copy|move <id> --to <instance> [--instance <kaynak>] [--force]
@@ -97,6 +99,8 @@ do {
         try SessionCommand.run(rest)
     case "project", "env", "environment":
         try ProjectCommand.run(rest)
+    case "memory":
+        try MemoryCommand.run(rest)
     default:
         Output.error("bilinmeyen komut: \(command)", code: ExitCode.usage)
     }

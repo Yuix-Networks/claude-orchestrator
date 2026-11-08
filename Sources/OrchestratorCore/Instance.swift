@@ -37,21 +37,37 @@ public struct Project: Codable, Equatable, Sendable {
     public var path: String
     /// Ek klasörler (mutlak yollar).
     public var additionalFolders: [String]
+    /// Bu projede açılan oturumların varsayılan izin modu
+    /// (`bypassPermissions`, `acceptEdits`, …). `nil` → Desktop ayarına dokunulmaz.
+    public var permissionMode: String?
     public var createdAt: Date
 
-    public init(name: String, path: String, additionalFolders: [String] = [], createdAt: Date = Date()) {
+    public init(
+        name: String,
+        path: String,
+        additionalFolders: [String] = [],
+        permissionMode: String? = nil,
+        createdAt: Date = Date()
+    ) {
         self.name = name
         self.path = path
         self.additionalFolders = additionalFolders
+        self.permissionMode = permissionMode
         self.createdAt = createdAt
     }
 
     public var presetSpec: PresetSpec {
-        PresetSpec(name: name, cwd: path, additionalFolders: additionalFolders)
+        PresetSpec(name: name, cwd: path, additionalFolders: additionalFolders, permissionMode: permissionMode)
+    }
+
+    /// Kayıttaki tanım aynı mı? (oluşturma zamanı hariç)
+    public func sameDefinition(as other: Project) -> Bool {
+        name == other.name && path == other.path
+            && additionalFolders == other.additionalFolders && permissionMode == other.permissionMode
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, path, additionalFolders, createdAt
+        case name, path, additionalFolders, permissionMode, createdAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -59,6 +75,7 @@ public struct Project: Codable, Equatable, Sendable {
         name = try container.decode(String.self, forKey: .name)
         path = try container.decode(String.self, forKey: .path)
         additionalFolders = try container.decodeIfPresent([String].self, forKey: .additionalFolders) ?? []
+        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
     }
 }

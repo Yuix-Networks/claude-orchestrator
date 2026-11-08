@@ -199,4 +199,119 @@ final class ManifestTests: XCTestCase {
         let text = Orchestrator.renderManifest([Project(name: "x", path: home + "/workspace/x")])
         XCTAssertTrue(text.contains(#""path": "~/workspace/x""#), text)
     }
+
+    // MARK: - defaults ve izin modu
+
+    private func desktopPreferences(_ instance: String) throws -> [String: Any] {
+        let url = paths.profileDir(instance).appendingPathComponent("claude_desktop_config.json")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        return object["preferences"] as? [String: Any] ?? [:]
+    }
+
+    private func folderModes(_ instance: String) throws -> [String: String] {
+        let epitaxy = try desktopPreferences(instance)["epitaxyPrefs"] as? [String: Any]
+        return epitaxy?["epitaxy-folder-permission-mode-v2.acct-\(instance)"] as? [String: String] ?? [:]
+    }
+
+    func testDefaultsAddFoldersAndModeToEveryProject() throws {
+        try write("""
+        {
+          "defaults": { "folders": ["c"], "permissionMode": "bypassPermissions" },
+          "projects": [
+            { "name": "A", "path": "a", "folders": ["b"] },
+            { "name": "B", "path": "b", "permissionMode": "acceptEdits" },
+            { "name": "C", "path": "c" }
+          ]
+        }
+        """)
+
+        let projects = try Orchestrator.loadManifest(manifest)
+
+        XCTAssertEqual(projects[0].additionalFolders, [b.path, c.path])
+        XCTAssertEqual(projects[0].permissionMode, "bypassPermissions")
+        XCTAssertEqual(projects[1].permissionMode, "acceptEdits", "projedeki mod ortak modu ezer")
+        XCTAssertEqual(projects[2].additionalFolders, [], "ortak klasör projenin kendisine eklenmez")
+    }
+
+    func testRejectsInvalidPermissionModeAndDefaultsKeys() throws {
+        try write("""
+        { "defaults": { "folder": [], "permissionMode": "yolo" },
+          "projects": [ { "path": "a", "permissionMode": 3 } ] }
+        """)
+        XCTAssertThrowsError(try Orchestrator.loadManifest(manifest)) { error in
+            let text = "\(error)"
+            XCTAssertTrue(text.contains("defaults: bilinmeyen alan \"folder\""), text)
+            XCTAssertTrue(text.contains("yolo"), text)
+            XCTAssertTrue(text.contains("projects[0] \"a\": \"permissionMode\" geçersiz"), text)
+        }
+    }
+
+    func testBypassModeIsWrittenPerAccountAndFolderWithoutTouchingOrgGate() throws {
+        try signIn("is")
+        let configURL = paths.profileDir("is").appendingPathComponent("claude_desktop_config.json")
+        try JSONSerialization.data(withJSONObject: ["preferences": [
+            "bypassPermissionsGateByAccount": ["acct-is": false],
+            "menuBarEnabled": true
+        ]]).write(to: configURL)
+        try write(#"{ "defaults": { "permissionMode": "bypassPermissions" }, "projects": [ { "name": "A", "path": "a" } ] }"#)
+
+        let result = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
+
+        XCTAssertEqual(try folderModes("is"), [a.path: "bypassPermissions"])
+        let preferences = try desktopPreferences("is")
+        XCTAssertEqual(preferences["bypassPermissionsModeEnabled"] as? Bool, true)
+        XCTAssertEqual((preferences["bypassPermissionsOptInByAccount"] as? [String: Bool])?["acct-is"], true)
+        XCTAssertEqual((preferences["bypassPermissionsGateByAccount"] as? [String: Bool])?["acct-is"], false,
+                       "organizasyon politikası değiştirilmemeli")
+        XCTAssertEqual(preferences["menuBarEnabled"] as? Bool, true, "diğer tercihler korunmalı")
+        let acks = (preferences["epitaxyPrefs"] as? [String: Any])?["epitaxy-perm-mode-acks-v2.acct-is"] as? [String]
+        XCTAssertEqual(acks, ["\(a.path):bypassPermissions"])
+        XCTAssertEqual(result.synced.first?.applied?.bypassBlockedAccounts, ["acct-is"])
+    }
+
+    func testModeOnlyChangeKeepsEnvironmentAndRemovingModeClearsIt() throws {
+        try signIn("is")
+        try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "acceptEdits" } ] }"#)
+        _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
+
+        // Kullanıcı Desktop'ta ortama ayar ekledi.
+        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: presetsURL)) as? [String: Any])
+        var byAccount = try XCTUnwrap(object["byAccount"] as? [String: Any])
+        var account = try XCTUnwrap(byAccount["acct-is"] as? [String: Any])
+        var list = try XCTUnwrap(account["presets"] as? [[String: Any]])
+        list[0]["settings"] = ["modelId": "claude-opus-5-5"]
+        account["presets"] = list; byAccount["acct-is"] = account; object["byAccount"] = byAccount
+        try JSONSerialization.data(withJSONObject: object).write(to: presetsURL)
+
+        try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "bypassPermissions" } ] }"#)
+        let plan = try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false)
+        XCTAssertEqual(plan.toUpdate.count, 1)
+        _ = try ctl.apply(plan)
+
+        XCTAssertEqual(try folderModes("is")[a.path], "bypassPermissions")
+        let after = try String(contentsOf: presetsURL, encoding: .utf8)
+        XCTAssertTrue(after.contains("claude-opus-5-5"), "yalnızca mod değişince ortam ayarları korunmalı")
+
+        try write(#"{ "projects": [ { "name": "A", "path": "a" } ] }"#)
+        _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
+        XCTAssertNil(try folderModes("is")[a.path], "dosyadan kaldırılan mod Desktop'tan da silinmeli")
+    }
+
+    func testPruneClearsPermissionModeOfRemovedProject() throws {
+        try signIn("is")
+        try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "bypassPermissions" } ] }"#)
+        _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
+
+        try write(#"{ "projects": [] }"#)
+        _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: true))
+
+        XCTAssertEqual(try folderModes("is"), [:])
+    }
+
+    func testExportIncludesPermissionMode() throws {
+        try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "auto" } ] }"#)
+        _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
+        XCTAssertTrue(try ctl.exportManifest().contains(#""permissionMode": "auto""#))
+    }
 }

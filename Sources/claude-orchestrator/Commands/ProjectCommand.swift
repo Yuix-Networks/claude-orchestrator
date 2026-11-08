@@ -221,6 +221,9 @@ enum ProjectCommand {
         let removed = change.old.additionalFolders.filter { !change.new.additionalFolders.contains($0) }
         if !added.isEmpty { parts.append("+\(added.count) ek klasör") }
         if !removed.isEmpty { parts.append("-\(removed.count) ek klasör") }
+        if change.old.permissionMode != change.new.permissionMode {
+            parts.append("izin modu: \(change.old.permissionMode ?? "-") → \(change.new.permissionMode ?? "-")")
+        }
         if parts.isEmpty { parts.append("ek klasör sırası") }
         return parts.joined(separator: ", ")
     }
@@ -267,7 +270,7 @@ enum ProjectCommand {
                 if applied.accounts.isEmpty {
                     line = "güvenli klasörler eklendi; ortamlar ilk girişten sonra 'start' ile yazılacak"
                 } else if applied.addedCount == 0 {
-                    line = "güncel"
+                    line = applied.permissionModesSet > 0 ? "güncel (izin modları yazıldı)" : "güncel"
                 } else {
                     line = "\(applied.addedCount) ortam eklendi (\(applied.accounts.count) hesap)"
                         + (result.isRunning ? " — çalışıyor, yeniden başlatınca görünür" : "")
@@ -276,6 +279,9 @@ enum ProjectCommand {
                 line = "-"
             }
             Output.line("  \(result.instance): \(line)")
+            if let blocked = result.applied?.bypassBlockedAccounts, !blocked.isEmpty {
+                Output.line("    uyarı: \(blocked.count) hesapta organizasyon politikası bypass modunu kapatmış; orada çalışmaz")
+            }
         }
     }
 

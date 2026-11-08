@@ -15,6 +15,11 @@ import Foundation
 /// ```
 ///
 /// - `name` isteğe bağlı (yoksa klasör adı), `folders` isteğe bağlı.
+/// - `permissionMode` isteğe bağlı: `bypassPermissions`, `acceptEdits`, `auto`,
+///   `plan`, `default` — bu projede açılan oturumların varsayılan izin modu.
+/// - `defaults` (isteğe bağlı) tüm projelere uygulanır: `folders` her projenin ek
+///   klasörlerine eklenir (projenin kendi klasörü hariç), `permissionMode`
+///   projede yazılmadıysa kullanılır.
 /// - Yollar `~` ile veya dosyanın bulunduğu klasöre göre göreli yazılabilir.
 /// - `//` ile başlayan anahtarlar not olarak yok sayılır; okurken `//` yorumları
 ///   ve sondaki virgüller de kabul edilir (JSON5).
@@ -82,8 +87,8 @@ extension Orchestrator {
             throw OrchestratorError.runtime("proje dosyası bir JSON nesnesi olmalı: { \"projects\": [ … ] }")
         }
         var problems: [String] = []
-        for key in object.keys where key != "projects" && key != "version" && !key.hasPrefix("//") {
-            problems.append("bilinmeyen alan: \"\(key)\" (beklenen: \"projects\")")
+        for key in object.keys where !["projects", "version", "defaults"].contains(key) && !key.hasPrefix("//") {
+            problems.append("bilinmeyen alan: \"\(key)\" (beklenen: \"projects\", \"defaults\")")
         }
         if let version = object["version"], (version as? Int) != 1 {
             problems.append("desteklenmeyen sürüm: \(version) (yalnızca 1)")
@@ -94,6 +99,39 @@ extension Orchestrator {
         }
 
         let base = url.deletingLastPathComponent()
+
+        // Ortak ayarlar.
+        var defaultFolders: [String] = []
+        var defaultMode: String?
+        if let rawDefaults = object["defaults"] {
+            if let defaults = rawDefaults as? [String: Any] {
+                for key in defaults.keys where !["folders", "permissionMode"].contains(key) && !key.hasPrefix("//") {
+                    problems.append("defaults: bilinmeyen alan \"\(key)\" (beklenen: folders, permissionMode)")
+                }
+                if let rawFolders = defaults["folders"] {
+                    if let list = rawFolders as? [String] {
+                        for raw in list {
+                            do {
+                                let folder = try resolveDirectory(raw, relativeTo: base)
+                                if !defaultFolders.contains(folder) { defaultFolders.append(folder) }
+                            } catch {
+                                problems.append("defaults: ek klasör — \(error)")
+                            }
+                        }
+                    } else {
+                        problems.append("defaults: \"folders\" metin dizisi olmalı")
+                    }
+                }
+                if let rawMode = defaults["permissionMode"] {
+                    if let mode = validatePermissionMode(rawMode) { defaultMode = mode } else {
+                        problems.append("defaults: \(permissionModeProblem(rawMode))")
+                    }
+                }
+            } else {
+                problems.append("\"defaults\" bir nesne olmalı")
+            }
+        }
+
         var projects: [Project] = []
         var names: [String: Int] = [:]
         var paths: [String: Int] = [:]
@@ -104,8 +142,8 @@ extension Orchestrator {
                 problems.append("\(label): bir nesne olmalı")
                 continue
             }
-            for key in item.keys where !["name", "path", "folders"].contains(key) && !key.hasPrefix("//") {
-                problems.append("\(label): bilinmeyen alan \"\(key)\" (beklenen: name, path, folders)")
+            for key in item.keys where !["name", "path", "folders", "permissionMode"].contains(key) && !key.hasPrefix("//") {
+                problems.append("\(label): bilinmeyen alan \"\(key)\" (beklenen: name, path, folders, permissionMode)")
             }
             guard let rawPath = item["path"] as? String else {
                 problems.append("\(label): \"path\" zorunlu ve metin olmalı")
@@ -142,6 +180,16 @@ extension Orchestrator {
                 }
             }
 
+            var mode = defaultMode
+            if let rawMode = item["permissionMode"] {
+                if let valid = validatePermissionMode(rawMode) { mode = valid } else {
+                    problems.append("\(tag): \(permissionModeProblem(rawMode))")
+                }
+            }
+            for folder in defaultFolders where folder != path && !folders.contains(folder) {
+                folders.append(folder)
+            }
+
             if let first = names[name] {
                 problems.append("\(tag): ad projects[\(first)] ile aynı")
                 continue
@@ -152,13 +200,23 @@ extension Orchestrator {
             }
             names[name] = index
             paths[path] = index
-            projects.append(Project(name: name, path: path, additionalFolders: folders))
+            projects.append(Project(name: name, path: path, additionalFolders: folders, permissionMode: mode))
         }
 
         guard problems.isEmpty else {
             throw OrchestratorError.runtime(Self.manifestError(url, problems))
         }
         return projects
+    }
+
+    private static func validatePermissionMode(_ raw: Any) -> String? {
+        guard let mode = raw as? String, ProfileSeeder.permissionModes.contains(mode) else { return nil }
+        return mode
+    }
+
+    private static func permissionModeProblem(_ raw: Any) -> String {
+        let allowed = ProfileSeeder.permissionModes.sorted().joined(separator: ", ")
+        return "\"permissionMode\" geçersiz: \(raw) (geçerli: \(allowed))"
     }
 
     private static func manifestError(_ url: URL, _ problems: [String]) -> String {
@@ -183,7 +241,7 @@ extension Orchestrator {
             if let existing = current[wanted.name] {
                 var updated = wanted
                 updated.createdAt = existing.createdAt
-                if existing.path == wanted.path && existing.additionalFolders == wanted.additionalFolders {
+                if existing.sameDefinition(as: wanted) {
                     plan.unchanged.append(existing)
                 } else {
                     plan.toUpdate.append(ProjectChange(old: existing, new: updated))
@@ -208,8 +266,9 @@ extension Orchestrator {
     /// Planı uygular: kaydı günceller, eski ortamları kaldırır, yenilerini
     /// tüm instance'lara yazar.
     ///
-    /// Değişen veya yeniden adlandırılan bir projenin instance'lardaki ortamı
+    /// Klasörü, ek klasörleri veya adı değişen bir projenin instance'lardaki ortamı
     /// silinip yeniden yazılır (o ortamdaki model gibi Desktop ayarları sıfırlanır).
+    /// Yalnızca izin modu değiştiyse ortama dokunulmaz, mod yerinde güncellenir.
     public func apply(_ plan: ProjectPlan) throws -> ProjectApplyResult {
         guard plan.hasChanges else {
             return ProjectApplyResult(plan: plan, synced: [], withdrawn: [])
@@ -225,7 +284,22 @@ extension Orchestrator {
         }
         try store.save(config)
 
-        let withdrawn = withdraw(plan.toRemove + replaced, remaining: config)
+        // Ortamı yeniden yazılması gerekenler: tanımı (mod dışında) değişenler.
+        let rewritten = plan.toUpdate
+            .filter { $0.old.path != $0.new.path || $0.old.additionalFolders != $0.new.additionalFolders }
+            .map(\.old) + plan.toRename.map(\.old)
+        let withdrawn = withdraw(plan.toRemove + rewritten, remaining: config)
+
+        // Dosyadan kaldırılan izin modları Desktop'tan da silinir.
+        let clearedModes = plan.toUpdate
+            .filter { $0.old.permissionMode != nil && $0.new.permissionMode == nil }
+            .map(\.new.path)
+        if !clearedModes.isEmpty {
+            for endpoint in try instanceEndpoints() {
+                try? seeder.removePermissionModes(cwds: clearedModes, profileDir: endpoint.profileDir)
+            }
+        }
+
         let synced = try syncProjects(only: written)
         return ProjectApplyResult(plan: plan, synced: synced, withdrawn: withdrawn)
     }
@@ -254,6 +328,9 @@ extension Orchestrator {
             if !project.additionalFolders.isEmpty {
                 let folders = project.additionalFolders.map { quoted(tilde($0)) }.joined(separator: ", ")
                 fields.append("\"folders\": [\(folders)]")
+            }
+            if let mode = project.permissionMode {
+                fields.append("\"permissionMode\": \(quoted(mode))")
             }
             return "    { " + fields.joined(separator: ", ") + " }"
         }

@@ -141,6 +141,12 @@ claude-orchestrator session last --from <instance> --to <instance>
       henüz gözle doğrulanmadı (dosya biçimi gerçek profildeki ortamlarla aynı)
 - [x] `project apply` / `project export`: elle düzenlenen `projects.json`
       (`~/.config/claude-orchestrator/`), önce tüm dosya doğrulanır, `--dry-run`, `--prune`
+- [x] `defaults` (ortak ek klasörler, izin modu) ve proje başına `permissionMode`
+      (`preferences.epitaxyPrefs` → `epitaxy-folder-permission-mode-v2.<hesap>`); org kısıtına
+      (`bypassPermissionsGateByAccount`) dokunulmuyor
+- [ ] İzin modunun Desktop'ta gerçekten varsayılan olarak seçildiği girişli bir instance'ta
+      gözle doğrulanmadı (anahtarlar gerçek profildeki kayıtlarla aynı biçimde)
+- [x] `memory`: `~/.claude/CLAUDE.md` her instance'ın config dizinine sembolik bağ
 - [ ] Çalışan instance'a anında yansıtma yok (Claude dosyayı bellekte tutuyor; yeniden
       başlatma gerekiyor)
 

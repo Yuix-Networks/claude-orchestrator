@@ -154,6 +154,7 @@ public final class Orchestrator {
         }
         // Kayıtlı projeler: güvenli klasörler hemen, ortamlar ilk girişten sonra.
         _ = try? syncProjects(instance: name)
+        ensureSharedMemory(name)
 
         return instance
     }
@@ -213,6 +214,8 @@ public final class Orchestrator {
         if let failure = (try? syncProjects(instance: name))?.first?.error {
             warning = [warning, "proje senkronu başarısız: \(failure)"].compactMap { $0 }.joined(separator: "; ")
         }
+
+        ensureSharedMemory(name)
 
         let request = LaunchRequest(
             appPath: appPath,

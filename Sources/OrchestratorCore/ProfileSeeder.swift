@@ -23,11 +23,14 @@ public struct PresetSpec: Equatable {
     public var cwd: String
     /// Ek klasörler (`target.additionalFolders`).
     public var additionalFolders: [String]
+    /// Bu klasörde açılan oturumların varsayılan izin modu (`nil` → dokunulmaz).
+    public var permissionMode: String?
 
-    public init(name: String, cwd: String, additionalFolders: [String] = []) {
+    public init(name: String, cwd: String, additionalFolders: [String] = [], permissionMode: String? = nil) {
         self.name = name
         self.cwd = cwd
         self.additionalFolders = additionalFolders
+        self.permissionMode = permissionMode
     }
 }
 
@@ -39,6 +42,11 @@ public struct PresetApplyResult: Equatable {
     public var presetsAdded: [String: [String]]
     /// Ortamların yazıldığı hesaplar (boşsa hesap henüz bilinmiyor: giriş yapılmamış).
     public var accounts: [String]
+    /// Yazılan klasör izin modu sayısı (tüm hesaplar).
+    public var permissionModesSet: Int = 0
+    /// Bypass istenip organizasyon politikası kapalı olan hesaplar
+    /// (`bypassPermissionsGateByAccount == false`); bu hesaplarda mod çalışmaz.
+    public var bypassBlockedAccounts: [String] = []
 
     public var addedCount: Int { presetsAdded.values.reduce(0) { $0 + $1.count } }
 }
@@ -149,7 +157,114 @@ public struct ProfileSeeder {
             try writeObject(presets, to: url)
         }
 
-        return PresetApplyResult(trustedFoldersAdded: trusted.added, presetsAdded: added, accounts: accounts)
+        var result = PresetApplyResult(trustedFoldersAdded: trusted.added, presetsAdded: added, accounts: accounts)
+        let moded = specs.filter { $0.permissionMode != nil }
+        if !moded.isEmpty, !accounts.isEmpty {
+            (result.permissionModesSet, result.bypassBlockedAccounts) =
+                try applyPermissionModes(moded, accounts: accounts, profileDir: profileDir)
+        }
+        return result
+    }
+
+    // MARK: - İzin modları
+
+    /// Desktop'un kabul ettiği izin modları.
+    public static let permissionModes: Set<String> = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"]
+
+    static func folderModeKey(_ account: String) -> String { "epitaxy-folder-permission-mode-v2.\(account)" }
+    static func modeAckKey(_ account: String) -> String { "epitaxy-perm-mode-acks-v2.\(account)" }
+
+    /// Klasör başına izin modunu yazar (`preferences.epitaxyPrefs`).
+    ///
+    /// Bypass için uygulama düzeyindeki anahtar (`bypassPermissionsModeEnabled`),
+    /// hesabın onayı (`bypassPermissionsOptInByAccount`) ve klasörün uyarı onayı da
+    /// yazılır. Organizasyon politikası (`bypassPermissionsGateByAccount`)
+    /// değiştirilmez; kapalı olan hesaplar raporlanır.
+    private func applyPermissionModes(
+        _ specs: [PresetSpec],
+        accounts: [String],
+        profileDir: URL
+    ) throws -> (Int, [String]) {
+        var count = 0
+        var blocked: [String] = []
+        try updateDesktopPreferences(profileDir: profileDir) { preferences, url in
+            var epitaxy = try dictionary(preferences["epitaxyPrefs"], in: url) ?? [:]
+            let gate = preferences["bypassPermissionsGateByAccount"] as? [String: Any] ?? [:]
+            var optIn = try dictionary(preferences["bypassPermissionsOptInByAccount"], in: url) ?? [:]
+            var changed = false
+            let wantsBypass = specs.contains { $0.permissionMode == "bypassPermissions" }
+
+            for account in accounts {
+                var modes = try dictionary(epitaxy[Self.folderModeKey(account)], in: url) ?? [:]
+                var acks = epitaxy[Self.modeAckKey(account)] as? [String] ?? []
+                for spec in specs {
+                    guard let mode = spec.permissionMode else { continue }
+                    if modes[spec.cwd] as? String != mode {
+                        modes[spec.cwd] = mode
+                        changed = true
+                    }
+                    count += 1
+                    let ack = "\(spec.cwd):\(mode)"
+                    if mode == "bypassPermissions", !acks.contains(ack) {
+                        acks.append(ack)
+                        changed = true
+                    }
+                }
+                epitaxy[Self.folderModeKey(account)] = modes
+                epitaxy[Self.modeAckKey(account)] = acks
+                if wantsBypass {
+                    if gate[account] as? Bool == false { blocked.append(account) }
+                    if optIn[account] as? Bool != true {
+                        optIn[account] = true
+                        changed = true
+                    }
+                }
+            }
+            if wantsBypass {
+                if preferences["bypassPermissionsModeEnabled"] as? Bool != true {
+                    preferences["bypassPermissionsModeEnabled"] = true
+                    changed = true
+                }
+                preferences["bypassPermissionsOptInByAccount"] = optIn
+            }
+            preferences["epitaxyPrefs"] = epitaxy
+            return changed
+        }
+        return (count, blocked)
+    }
+
+    /// Klasörlerin izin modu kayıtlarını tüm hesaplardan siler.
+    public func removePermissionModes(cwds: [String], profileDir: URL) throws {
+        let url = profileDir.appendingPathComponent("claude_desktop_config.json")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try updateDesktopPreferences(profileDir: profileDir) { preferences, url in
+            guard var epitaxy = try dictionary(preferences["epitaxyPrefs"], in: url) else { return false }
+            var changed = false
+            for key in epitaxy.keys {
+                if key.hasPrefix("epitaxy-folder-permission-mode-v2."), var modes = epitaxy[key] as? [String: Any] {
+                    let before = modes.count
+                    for cwd in cwds { modes.removeValue(forKey: cwd) }
+                    if modes.count != before { epitaxy[key] = modes; changed = true }
+                } else if key.hasPrefix("epitaxy-perm-mode-acks-v2."), let acks = epitaxy[key] as? [String] {
+                    let kept = acks.filter { ack in !cwds.contains { ack.hasPrefix($0 + ":") } }
+                    if kept.count != acks.count { epitaxy[key] = kept; changed = true }
+                }
+            }
+            preferences["epitaxyPrefs"] = epitaxy
+            return changed
+        }
+    }
+
+    /// Profilde klasör → izin modu (etkin hesaba göre; bilinmiyorsa ilk hesap).
+    public func permissionModes(profileDir: URL) -> [String: String] {
+        let url = profileDir.appendingPathComponent("claude_desktop_config.json")
+        guard let config = Self.readJSONObject(url),
+              let epitaxy = (config["preferences"] as? [String: Any])?["epitaxyPrefs"] as? [String: Any]
+        else { return [:] }
+        let account = Self.activeAccountUUID(profileDir: profileDir)
+        let keys = epitaxy.keys.filter { $0.hasPrefix("epitaxy-folder-permission-mode-v2.") }.sorted()
+        let key = account.map(Self.folderModeKey).flatMap { keys.contains($0) ? $0 : nil } ?? keys.first
+        return key.flatMap { epitaxy[$0] as? [String: String] } ?? [:]
     }
 
     /// `cwd`'si verilen yollardan biri olan ortamları tüm hesaplardan kaldırır;
@@ -159,6 +274,7 @@ public struct ProfileSeeder {
         let trusted = try updateTrustedFolders(profileDir: profileDir) { current in
             current.filter { !trustedFolders.contains($0) }
         }
+        try removePermissionModes(cwds: cwds, profileDir: profileDir)
 
         let url = profileDir.appendingPathComponent("ccd-session-presets.json")
         var presets = try readPresetsFile(url)
@@ -208,6 +324,28 @@ public struct ProfileSeeder {
 
     private static func cwd(of preset: [String: Any]) -> String? {
         (preset["target"] as? [String: Any])?["cwd"] as? String
+    }
+
+    // MARK: - Desktop tercihleri
+
+    /// `claude_desktop_config.json` → `preferences` üzerinde değişiklik yapar.
+    ///
+    /// `transform` değişiklik yaptıysa `true` döner; yalnızca o zaman yazılır.
+    private func updateDesktopPreferences(
+        profileDir: URL,
+        _ transform: (inout [String: Any], URL) throws -> Bool
+    ) throws {
+        let url = profileDir.appendingPathComponent("claude_desktop_config.json")
+        var config: [String: Any]
+        switch try readObject(at: url) {
+        case .missing: config = ["mcpServers": [String: Any](), "preferences": [String: Any]()]
+        case let .object(value): config = value
+        case .unexpectedType: throw unexpected(url)
+        }
+        var preferences = try dictionary(config["preferences"], in: url) ?? [:]
+        guard try transform(&preferences, url) else { return }
+        config["preferences"] = preferences
+        try writeObject(config, to: url)
     }
 
     // MARK: - Güvenli klasörler

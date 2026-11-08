@@ -122,6 +122,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 | `claude-orchestrator doctor [<name>] [--json]` | Health checks: app version, profile, lock, disk, workdir, session |
 | `claude-orchestrator clone <name> --as <new> [--workdir <path>]` | Copy an instance with its profile, config and sessions |
 | `claude-orchestrator project apply [<file>]` | Apply a hand-edited `projects.json` to every instance |
+| `claude-orchestrator memory link\|unlink\|status` | Share `~/.claude/CLAUDE.md` with every instance |
 | `claude-orchestrator project …` (alias `env`) | Projects shared by every instance — Claude Desktop calls them environments (see below) |
 | `claude-orchestrator session …` | List, inspect, copy and move Claude Code sessions (see below) |
 | `claude-orchestrator remove <name> [--purge [--permanent]] [--yes]` | Delete the instance; `--purge` moves its data to the Trash (asks first) |
@@ -173,6 +174,26 @@ claude-orchestrator project apply --prune      # also delete projects that are n
 ```
 
 - `name` and `folders` are optional. Paths may use `~` or be relative to the file.
+- `defaults` applies to every project. `defaults.folders` is added to each project's
+  extra folders (for example a knowledge-base repo every session should see), and
+  `defaults.permissionMode` is used where a project doesn't set its own:
+
+  ```json
+  {
+    "defaults": { "folders": ["~/workspace/notes"], "permissionMode": "bypassPermissions" },
+    "projects": [ { "path": "~/workspace/blog", "permissionMode": "acceptEdits" } ]
+  }
+  ```
+
+- `permissionMode` sets the default permission mode for sessions started in that
+  project's folder. It can be `default`, `acceptEdits`, `plan`, `auto` or
+  `bypassPermissions`. Claude Desktop stores this per account and per folder. For
+  `bypassPermissions`, apply also turns on "allow bypass mode" and records the
+  account's opt-in.
+  - An organization policy that disables bypass mode is left alone, and the output
+    names the affected accounts.
+  - Removing `permissionMode` from the file clears it from Desktop. A change that only
+    touches the mode keeps the environment's other settings.
 - `//` comments and trailing commas are accepted.
 - The whole file is checked first: every missing folder, duplicate name and misspelled
   key is reported together, and nothing changes until the file is clean.
@@ -190,6 +211,22 @@ claude-orchestrator project apply --prune      # also delete projects that are n
   meanwhile, the next `start` writes the changes again.
 - `project remove` keeps a folder trusted if another project or the instance's workdir
   still uses it.
+
+## Shared CLAUDE.md
+
+Each instance has its own Claude Code config directory, so it doesn't read your
+`~/.claude/CLAUDE.md`. `memory` links that file into every instance, so your global
+instructions are the same everywhere and you edit them in one place:
+
+```bash
+claude-orchestrator memory status          # which instances are linked
+claude-orchestrator memory link            # link every instance
+claude-orchestrator memory link --force    # also replace an instance's own CLAUDE.md (kept as a backup)
+claude-orchestrator memory unlink          # remove the links
+```
+
+New instances, and instances started without a CLAUDE.md, are linked automatically. An
+instance's own CLAUDE.md is never overwritten without `--force`.
 
 ## Sessions
 
