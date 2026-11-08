@@ -11,7 +11,7 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-BIN=".build/release/claude-ctl"
+BIN=".build/release/claude-orchestrator"
 if [ ! -x "$BIN" ]; then
     echo ">> binary yok, derleniyor..."
     swift build -c release || exit 1
@@ -150,13 +150,14 @@ else
     fail "geçersiz ad exit=$? (2 olmalı)"
 fi
 
-step "eksik --workdir"
-"$BIN" new "workdirsuz" >/dev/null 2>&1
+step "değersiz --workdir"
+"$BIN" new "workdirsuz-$$" --workdir >/dev/null 2>&1
 if [ $? -eq 2 ]; then
-    ok "eksik --workdir exit=2"
+    ok "değersiz --workdir exit=2"
 else
-    fail "eksik --workdir exit=$? (2 olmalı)"
+    fail "değersiz --workdir exit=$? (2 olmalı)"
 fi
+"$BIN" remove "workdirsuz-$$" >/dev/null 2>&1 || true
 
 step "iki instance izolasyonu"
 "$BIN" new "$SMOKE2_NAME" --workdir "$WORK" >/dev/null 2>&1
@@ -178,6 +179,24 @@ if [ -f "$PROFILE1/Cookies" ] && [ -f "$PROFILE2/Cookies" ]; then
     fi
 fi
 "$BIN" stop "$SMOKE2_NAME" >/dev/null 2>&1 || true
+
+step "oturum aktarımı"
+# Sahte bir Claude Code oturumu birinci instance'a yazılır, ikinciye taşınır.
+SID="smoke-session-$$"
+PROJ="$CODE1/projects/-tmp-smoke"
+mkdir -p "$PROJ"
+printf '%s\n' \
+  "{\"type\":\"user\",\"cwd\":\"/tmp/smoke\",\"sessionId\":\"$SID\",\"timestamp\":\"2026-11-08T10:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"merhaba\"}}" \
+  > "$PROJ/$SID.jsonl"
+"$BIN" stop "$SMOKE2_NAME" >/dev/null 2>&1 || true
+if "$BIN" session move "$SID" --to "$SMOKE2_NAME" >/dev/null 2>&1 \
+   && "$BIN" session show "$SID" --instance "$SMOKE2_NAME" >/dev/null 2>&1 \
+   && [ ! -e "$PROJ/$SID.jsonl" ]; then
+    ok "oturum taşındı ve hedefte görünüyor"
+else
+    fail "oturum taşınamadı"
+fi
+rm -rf "$HOME/Library/Application Support/claude-ctl/backups/"*"-$SID"
 
 printf '\n== sonuç ==\n'
 if [ "$FAILURES" -eq 0 ]; then

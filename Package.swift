@@ -7,17 +7,17 @@ import PackageDescription
 let swiftV5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 
 let package = Package(
-    name: "claude-ctl",
+    name: "claude-orchestrator",
     platforms: [.macOS(.v13)],
     products: [
-        .library(name: "ClaudeCtlCore", targets: ["ClaudeCtlCore"]),
-        .executable(name: "claude-ctl", targets: ["claude-ctl"])
+        .library(name: "OrchestratorCore", targets: ["OrchestratorCore"]),
+        .executable(name: "claude-orchestrator", targets: ["claude-orchestrator"])
     ],
     targets: [
-        .target(name: "ClaudeCtlCore", swiftSettings: swiftV5),
-        .target(name: "ClaudeCtlAgent", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5),
-        .executableTarget(name: "claude-ctl", dependencies: ["ClaudeCtlCore", "ClaudeCtlAgent"], swiftSettings: swiftV5),
-        .testTarget(name: "ClaudeCtlCoreTests", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5),
-        .testTarget(name: "ClaudeCtlAgentTests", dependencies: ["ClaudeCtlAgent", "ClaudeCtlCore"], swiftSettings: swiftV5)
+        .target(name: "OrchestratorCore", swiftSettings: swiftV5),
+        .target(name: "OrchestratorAgent", dependencies: ["OrchestratorCore"], swiftSettings: swiftV5),
+        .executableTarget(name: "claude-orchestrator", dependencies: ["OrchestratorCore", "OrchestratorAgent"], swiftSettings: swiftV5),
+        .testTarget(name: "OrchestratorCoreTests", dependencies: ["OrchestratorCore"], swiftSettings: swiftV5),
+        .testTarget(name: "OrchestratorAgentTests", dependencies: ["OrchestratorAgent", "OrchestratorCore"], swiftSettings: swiftV5)
     ]
 )
