@@ -14,8 +14,7 @@ claude-orchestrator list
 ```
 
 > **Renamed in v0.2.0:** `claude-ctl` is now `claude-orchestrator`, because the tool
-> manages sessions as well as instances. The old name still works as a deprecated alias
-> (it prints a warning), and the data directory stays at
+> manages sessions as well as instances. The data directory stays at
 > `~/Library/Application Support/claude-ctl/`, so existing instances keep working.
 
 ## Quick start: one instance per account
@@ -70,7 +69,7 @@ curl -fsSL https://raw.githubusercontent.com/Yuix-Networks/claude-orchestrator/m
 
 The script downloads the latest release and checks its SHA-256 against the published
 value. It installs into `/usr/local/bin` when that is writable and into `~/.local/bin`
-otherwise. It never uses `sudo`, and it adds `claude-ctl` as a deprecated alias.
+otherwise. It never uses `sudo`.
 
 - To pick a version or a directory, set `CLAUDE_ORCHESTRATOR_VERSION=0.2.2` or
   `CLAUDE_ORCHESTRATOR_DIR=~/bin` in front of `sh`.
@@ -79,13 +78,17 @@ otherwise. It never uses `sudo`, and it adds `claude-ctl` as a deprecated alias.
 
 ### Homebrew
 
+Recent Homebrew versions refuse to load formulae from a third-party tap until you trust
+it. Trust the tap **before** installing:
+
 ```bash
+brew tap yuix-networks/tap
+brew trust yuix-networks/tap
 brew install yuix-networks/tap/claude-orchestrator
 ```
 
 The formula lives in [Yuix-Networks/homebrew-tap](https://github.com/Yuix-Networks/homebrew-tap).
-Recent Homebrew versions ask you to trust a third-party tap once with
-`brew trust yuix-networks/tap`.
+Upgrade later with `brew upgrade claude-orchestrator`.
 
 ### From a release
 
@@ -107,6 +110,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 
 | Command | What it does |
 |---|---|
+| `claude-orchestrator version` | Print the version |
 | `claude-orchestrator new <name> [--workdir <path>] [--sessions-from <instance>]` | Create an instance; optionally seed a default project and copy another instance's sessions |
 | `claude-orchestrator start <name> [--folder <path>]` | Start the instance (separate profile + config) |
 | `claude-orchestrator stop <name>` | Stop the instance (SIGTERM, then SIGKILL if needed) |

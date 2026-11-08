@@ -15,15 +15,8 @@ enum AgentCommand {
         }
 
         if parsed.has("install") {
-            var executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/usr/local/bin/claude-orchestrator")
-                .standardizedFileURL
-            // Eski adla (`claude-ctl` bağı) çağrıldıysa login item yeni ada bağlansın.
-            let renamed = executable.deletingLastPathComponent().appendingPathComponent("claude-orchestrator")
-            if executable.lastPathComponent == LegacyName.command,
-               FileManager.default.isExecutableFile(atPath: renamed.path) {
-                executable = renamed
-            }
-            let executablePath = executable.path
+            let executablePath = URL(fileURLWithPath: CommandLine.arguments.first ?? "/usr/local/bin/claude-orchestrator")
+                .standardizedFileURL.path
             let url = try LaunchAgentInstaller().install(executablePath: executablePath)
             Output.line("menü çubuğu ikonu kuruldu: \(url.path)")
             Output.line("  oturum açılışında otomatik başlar; şimdi başlatmak için: claude-orchestrator agent")

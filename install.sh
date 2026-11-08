@@ -19,7 +19,6 @@ set -eu
 
 REPO="Yuix-Networks/claude-orchestrator"
 BINARY="claude-orchestrator"
-LEGACY="claude-ctl"
 
 say()  { printf '%s\n' "$*"; }
 warn() { printf 'uyarı: %s\n' "$*" >&2; }
@@ -37,15 +36,12 @@ choose_dir() {
 
 uninstall() {
     dir="$(choose_dir)"
-    removed=0
-    for name in "$BINARY" "$LEGACY"; do
-        if [ -e "$dir/$name" ] || [ -L "$dir/$name" ]; then
-            rm -f "$dir/$name"
-            say "silindi: $dir/$name"
-            removed=1
-        fi
-    done
-    [ "$removed" -eq 1 ] || say "$dir içinde kurulu $BINARY bulunamadı"
+    if [ -e "$dir/$BINARY" ]; then
+        rm -f "$dir/$BINARY"
+        say "silindi: $dir/$BINARY"
+    else
+        say "$dir içinde kurulu $BINARY bulunamadı"
+    fi
     say "instance verileri korunur: ~/Library/Application Support/claude-ctl/"
     exit 0
 }
@@ -116,7 +112,6 @@ fi
 # Geçici dosyadan atomik yer değiştirme: çalışan bir kopya bozulmaz.
 cp "$tmp/$BINARY" "$dir/.$BINARY.new"
 mv -f "$dir/.$BINARY.new" "$dir/$BINARY"
-ln -sf "$BINARY" "$dir/$LEGACY"
 
 say "kuruldu: $dir/$BINARY ($("$dir/$BINARY" --version))"
 

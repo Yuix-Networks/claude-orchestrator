@@ -48,12 +48,7 @@ enum Confirm {
     }
 }
 
-/// v0.1.0'daki eski komut adı (geriye dönük uyumluluk bağı).
-enum LegacyName {
-    static let command = "claude-ctl"
-}
-
 /// Sürüm (release etiketiyle aynı tutulur: `v<current>`).
 enum AppVersion {
-    static let current = "0.2.2"
+    static let current = "0.2.3"
 }

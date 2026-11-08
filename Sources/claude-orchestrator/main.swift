@@ -4,13 +4,6 @@ import Foundation
 
 let rawArguments = Array(CommandLine.arguments.dropFirst())
 
-// v0.1.0 adıyla (`claude-ctl`) çağrıldıysa uyar; komut yine çalışır.
-if URL(fileURLWithPath: CommandLine.arguments.first ?? "").lastPathComponent == LegacyName.command {
-    FileHandle.standardError.write(Data(
-        "uyarı: 'claude-ctl' adı 'claude-orchestrator' olarak değişti; eski ad ileride kaldırılacak\n".utf8
-    ))
-}
-
 let usage = """
 claude-orchestrator — Claude Desktop instance'larını ve oturumlarını yönetir
 

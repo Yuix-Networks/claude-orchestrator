@@ -17,7 +17,7 @@ Bugün `claude-ctl` **instance** yönetiyor; her instance kendi Claude Code conf
 sahip, ama oturumlar o instance'a hapsoluyor. Hedef: oturumları instance'lar arasında
 taşınabilir kılmak — "1. instance'ın son oturumu 2. instance'a gitsin" senaryosu.
 
-### 1.1 Komut adı: `claude-ctl` → `claude-orchestrator` `[~]`
+### 1.1 Komut adı: `claude-ctl` → `claude-orchestrator` `[x]`
 
 Araç artık sadece çoklu instance değil, **oturum orkestrasyonu** aracı; adı buna uygun
 hale getirilmeli.
@@ -26,14 +26,14 @@ hale getirilmeli.
       `ClaudeCtlCore`/`ClaudeCtlAgent` modül adları, `ClaudeCtl` tipi → `Orchestrator`)
       → `OrchestratorCore`, `OrchestratorAgent`, `Orchestrator`, `OrchestratorError`
 - [x] `Output`/`Usage` metinleri ve README güncellensin
-- [~] Homebrew formülü yeniden adlandırılsın (`Formula/claude-orchestrator.rb`) —
-      dosya hazır, `brew style` temiz; **`sha256` yer tutucu**: `v0.2.0` etiketi atılıp
-      release iş akışı bitince yazdırdığı değer formüle girilmeli (etiket atılmadı)
+- [x] Homebrew formülü yeniden adlandırılsın (`Formula/claude-orchestrator.rb`) → tap:
+      [Yuix-Networks/homebrew-tap](https://github.com/Yuix-Networks/homebrew-tap); ayrıca
+      `install.sh` (curl). Her sürümde tap formülünün `url`/`sha256`'sı elle güncelleniyor
 - [x] Release iş akışı yeni adı üretsin
 - [x] **Kırıcı değişiklik**: v0.1.0'ı kullananlar için `claude-ctl` → `claude-orchestrator`
       yönlendirmesi (eski ad için sembolik link veya "bu komut taşındı" uyarısı) eklensin
-      → formül `claude-ctl` bağını kuruyor; binary eski adla çağrılınca uyarı verip çalışıyor;
-      `agent --install` eski adla çağrılsa da login item'ı yeni ada bağlıyor
+      → **Karar (v0.2.3): yönlendirme yok.** `claude-ctl` takma adı kaldırıldı; tek komut
+      `claude-orchestrator`. Veri dizini ve LaunchAgent etiketi eski adıyla kalıyor
 - [x] Veri dizini adı kararı: `~/Library/Application Support/claude-ctl/` kalsın mı, yoksa
       `claude-orchestrator/` olsun mu? (Kalsın → mevcut instance'lar bozulmaz; değişirse
       taşıma/migration gerekir. **Öneri: kalsın.**) → **Kaldı.** LaunchAgent etiketi
