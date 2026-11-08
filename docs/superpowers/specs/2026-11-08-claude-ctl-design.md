@@ -166,7 +166,7 @@ claude-ctl start <ad>
  6. open -n -a ... --args --user-data-dir --env
  7. PID'yi bekle (max 10 sn)  → bulunamazsa hata (1)
  8. state.json güncelle       → pid, startedAt, claudeVersion
- 9. Agent'a bildir            → menü çubuğu ikonu güncellenir
+ 9. Agent menüsü güncellenir  → agent 5 saniyede bir yoklama yapar (anlık bildirim yok)
 ```
 
 `stop`: SIGTERM → 5 sn bekle → hâlâ yaşıyorsa SIGKILL. `state.json` temizlenir.
@@ -230,9 +230,9 @@ Tek process (`claude-ctl agent`), tüm instance'lar için birer `NSStatusItem`.
   **Sign-in yardımı**.
 - "Öne getir": `state.json`'daki PID üzerinden `NSRunningApplication.activate(options:
   [.activateAllWindows])`.
-- Durum güncellemesi: `config.json` değişikliği FSEvents ile izlenir; ayrıca 5 sn'de bir
-  PID canlılığı kontrol edilir.
-- Singleton: `state/agent.pid` dosyası; ikinci agent başlamaz.
+- Durum güncellemesi: 5 saniyede bir yoklama ile `config.json` ve PID canlılığı kontrol edilir,
+  menüler yenilenir (anlık bildirim/FSEvents kullanılmaz).
+- Singleton: `state/agent.pid` dosyası; içindeki pid canlıysa ikinci agent başlamaz.
 - Kurulum: `claude-ctl agent --install` → `~/Library/LaunchAgents/com.claude-ctl.agent.plist`
   (RunAtLoad + KeepAlive) yazılır.
 
