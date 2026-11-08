@@ -41,7 +41,7 @@ brew install --formula ./Formula/claude-ctl.rb
 
 ### From a release
 
-Download the `claude-ctl` binary from [Releases](https://github.com/OWNER/claude-ctl/releases)
+Download the `claude-ctl` binary from [Releases](https://github.com/Yuix-Networks/claude-orchestrator/releases)
 and put it on your `PATH`:
 
 ```bash

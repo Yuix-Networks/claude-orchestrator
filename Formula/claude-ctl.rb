@@ -1,7 +1,7 @@
 class ClaudeCtl < Formula
   desc "Run Claude Desktop as multiple independent instances on macOS"
-  homepage "https://github.com/OWNER/claude-ctl"
-  url "https://github.com/OWNER/claude-ctl/releases/download/v0.1.0/claude-ctl-0.1.0.tar.gz"
+  homepage "https://github.com/akarca/claude-ctl"
+  url "https://github.com/akarca/claude-ctl/releases/download/v0.1.0/claude-ctl-0.1.0.tar.gz"
   version "0.1.0"
   license "MIT"
 
