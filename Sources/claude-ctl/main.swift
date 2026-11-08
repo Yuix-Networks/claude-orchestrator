@@ -4,9 +4,39 @@ import Foundation
 
 let rawArguments = Array(CommandLine.arguments.dropFirst())
 
+let usage = """
+claude-ctl — Claude Desktop'u çoklu instance olarak çalıştırır
+
+KULLANIM
+  claude-ctl <komut> [argümanlar]
+
+KOMUTLAR
+  new <ad> --workdir <yol>        Instance oluşturur ve profili tohumlar
+  start <ad> [--folder <yol>]     Instance'ı başlatır (ayrı profil + config)
+  stop <ad>                      Instance'ı durdurur
+  list [--json]                  Instance'ların durumu
+  status <ad> [--json]           Tek instance'ın ayrıntısı
+  logs <ad> [-n N] [-f]          Log satırları (-f: takip et)
+  open <ad> [--target workdir|profile]
+  signin <ad> [--restart]        Giriş rehberi (claude:// handler çakışması)
+  doctor [<ad>] [--json]         Sağlık kontrolleri
+  remove <ad> [--purge] [--force] Instance'ı siler (--purge: veriler de)
+  agent [--install|--uninstall]  Menü çubuğu ikonları
+
+VERİ KONUMU
+  ~/Library/Application Support/claude-ctl/
+
+Detaylı bilgi: https://github.com/akarca/claude-ctl
+"""
+
 do {
     guard let command = rawArguments.first else {
-        Output.error("komut gerekli: new, start, stop, list, status, logs, open, signin, doctor, remove, agent", code: ExitCode.usage)
+        Output.error("komut gerekli (yardım: claude-ctl help)", code: ExitCode.usage)
+    }
+
+    if command == "help" || command == "--help" || command == "-h" {
+        print(usage)
+        exit(ExitCode.success)
     }
 
     let rest = Array(rawArguments.dropFirst())

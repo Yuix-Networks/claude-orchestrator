@@ -5,9 +5,7 @@ class ClaudeCtl < Formula
   version "0.1.0"
   license "MIT"
 
-  # TODO(release): `sha256` ilk release sonrası doldurulur.
-  # `curl -sL <url> | shasum -a 256` çıktısı buraya yazılır.
-  sha256 "SHA256_YER_TUTUCUSU"
+  sha256 "673d75b170bb46502f4b14f732e4eac7aaea5ba91b279e6055d2fd0618eef475"
 
   depends_on "macos" => :ventura
 
