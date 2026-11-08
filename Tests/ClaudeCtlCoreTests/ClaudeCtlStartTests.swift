@@ -170,8 +170,16 @@ final class ClaudeCtlStartTests: XCTestCase {
 
         XCTAssertFalse(result.alreadyRunning)
         XCTAssertEqual(result.pid, 4242)
-        XCTAssertEqual(result.seed?.trustedFolderAdded, true)
+        XCTAssertNotNil(result.seed)
         XCTAssertNil(result.warning)
+
+        // Tohumlama hem `new` hem `start` sırasında yapılır; sonuç olarak
+        // workdir profilin güvenli klasörlerinde bulunmalı.
+        let configData = try Data(contentsOf: paths.profileDir("work").appendingPathComponent("claude_desktop_config.json"))
+        let configJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: configData) as? [String: Any])
+        let preferences = try XCTUnwrap(configJSON["preferences"] as? [String: Any])
+        let trusted = try XCTUnwrap(preferences["localAgentModeTrustedFolders"] as? [String])
+        XCTAssertTrue(trusted.contains(workdir.path), "workdir güvenli klasörlerde olmalı: \(trusted)")
 
         let state = try XCTUnwrap(JSONFile.read(InstanceState.self, from: paths.stateFile("work")))
         XCTAssertEqual(state.pid, 4242)
