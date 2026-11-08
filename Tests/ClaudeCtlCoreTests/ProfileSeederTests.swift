@@ -129,6 +129,40 @@ final class ProfileSeederTests: XCTestCase {
         XCTAssertTrue(result.presetAdded)
     }
 
+    func testSeedPrefersLastKnownAccountOverAlphabeticalFirst() throws {
+        try writeJSON(
+            ["byAccount": ["aaa-eski": ["presets": []], "zzz-etkin": ["presets": []]]],
+            to: profileDir.appendingPathComponent("ccd-session-presets.json")
+        )
+        try writeJSON(["lastKnownAccountUuid": "zzz-etkin"], to: profileDir.appendingPathComponent("config.json"))
+
+        let result = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
+
+        XCTAssertEqual(result.accountUUID, "zzz-etkin")
+        XCTAssertTrue(result.presetAdded)
+    }
+
+    func testSeedSkipsPresetWhenSeveralAccountsAndNoneIsActive() throws {
+        try writeJSON(
+            ["byAccount": ["acct-1": ["presets": []], "acct-2": ["presets": []]]],
+            to: profileDir.appendingPathComponent("ccd-session-presets.json")
+        )
+
+        let result = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
+
+        XCTAssertNil(result.accountUUID, "etkin hesap bilinmiyorsa tahmin yapılmamalı")
+        XCTAssertFalse(result.presetAdded)
+    }
+
+    func testActiveAccountFallsBackToBootSideSessions() throws {
+        try writeJSON(
+            ["bootSideSessions": ["accountUuid": "acct-boot"]],
+            to: profileDir.appendingPathComponent("config.json")
+        )
+
+        XCTAssertEqual(ProfileSeeder.activeAccountUUID(profileDir: profileDir), "acct-boot")
+    }
+
     func testSeedHandlesWorkdirWithSpacesAndUnicode() throws {
         let unicodeDir = root.appendingPathComponent("boş luk ve ğ")
         try FileManager.default.createDirectory(at: unicodeDir, withIntermediateDirectories: true)

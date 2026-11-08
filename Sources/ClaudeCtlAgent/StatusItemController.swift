@@ -11,7 +11,11 @@ public final class StatusItemController {
     private let model: AgentModel
     private let paths: Paths
     private var statusItems: [String: NSStatusItem] = [:]
+    /// Menüsü en son kurulan durum; değişmediyse menü yeniden kurulmaz.
+    private var renderedStatuses: [String: InstanceStatus] = [:]
     private var timer: Timer?
+    /// Singleton kilidini tutan dosya tanımlayıcısı (süreç ölünce çekirdek bırakır).
+    private var lockDescriptor: Int32 = -1
 
     public init(model: AgentModel, paths: Paths = .default) {
         self.model = model
@@ -30,20 +34,35 @@ public final class StatusItemController {
         return true
     }
 
-    /// Singleton kilidi: pid dosyasında canlı bir pid varsa bu agent ikinci örnektir.
+    /// Singleton kilidi: `agent.lock` üzerinde özel `flock`.
+    ///
+    /// Kilit atomik olarak alınır (TOCTOU yarışı yok) ve süreç öldüğünde
+    /// çekirdek tarafından bırakılır; bayat bir pid dosyası agent'ı kalıcı
+    /// olarak "zaten çalışıyor" durumuna sokamaz. Pid yalnızca bilgi amaçlı yazılır.
     public func acquireSingleton() -> Bool {
-        let pidFile = paths.stateDirectory.appendingPathComponent("agent.pid")
+        if lockDescriptor >= 0 { return true }
+        try? FileManager.default.createDirectory(at: paths.stateDirectory, withIntermediateDirectories: true)
+        let lockPath = paths.stateDirectory.appendingPathComponent("agent.lock").path
 
-        if let data = try? Data(contentsOf: pidFile),
-           let text = String(data: data, encoding: .utf8),
-           let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)),
-           ProcessSignal.isAlive(pid) {
+        let descriptor = open(lockPath, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
+        guard descriptor >= 0 else { return false }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            close(descriptor)
             return false
         }
-
-        try? FileManager.default.createDirectory(at: paths.stateDirectory, withIntermediateDirectories: true)
-        try? Data(String(Int32(getpid())).utf8).write(to: pidFile)
+        ftruncate(descriptor, 0)
+        let pid = "\(getpid())\n"
+        _ = pid.withCString { write(descriptor, $0, strlen($0)) }
+        lockDescriptor = descriptor
         return true
+    }
+
+    /// Kilidi bırakır (testler ve düzgün kapanış için).
+    public func releaseSingleton() {
+        guard lockDescriptor >= 0 else { return }
+        flock(lockDescriptor, LOCK_UN)
+        close(lockDescriptor)
+        lockDescriptor = -1
     }
 
     /// Durumları yeniler ve menü çubuğu ikonlarını günceller.
@@ -51,14 +70,20 @@ public final class StatusItemController {
         let statuses = model.refresh()
         let names = Set(statuses.map(\.name))
 
-        for name in statusItems.keys where !names.contains(name) {
-            statusItems[name]?.menu = nil
-            statusItems[name] = nil
+        // Anahtarların kopyası üzerinde dönülür: sözlük döngü içinde değişiyor.
+        for name in Array(statusItems.keys) where !names.contains(name) {
+            if let item = statusItems.removeValue(forKey: name) {
+                NSStatusBar.system.removeStatusItem(item)
+            }
+            renderedStatuses[name] = nil
         }
 
         for status in statuses {
+            // Durum değişmediyse menüyü yeniden kurma (gereksiz titreme olmasın).
+            if statusItems[status.name] != nil, renderedStatuses[status.name] == status { continue }
             let item = statusItems[status.name] ?? makeStatusItem()
             statusItems[status.name] = item
+            renderedStatuses[status.name] = status
 
             let badge = status.name.count > 2 ? String(status.name.suffix(2)) : status.name
             item.button?.title = status.isRunning ? badge : ""

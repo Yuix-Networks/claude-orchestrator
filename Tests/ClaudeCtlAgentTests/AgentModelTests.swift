@@ -89,6 +89,37 @@ final class AgentModelTests: XCTestCase {
 
         XCTAssertEqual(items.first { $0.action == .stop }?.isEnabled, false)
         XCTAssertEqual(items.first { $0.action == .activate }?.isEnabled, false)
+        XCTAssertEqual(items.first { $0.action == .start }?.isEnabled, true)
+    }
+
+    func testMenuForRunningInstanceDisablesStart() throws {
+        try ctl.new(name: "work", workdir: nil)
+        launcher.runningPids[paths.profileDir("work").path] = 777
+        let status = try XCTUnwrap(model.refresh().first)
+
+        XCTAssertEqual(model.menuItems(for: status).first { $0.action == .start }?.isEnabled, false)
+    }
+
+    func testSingletonLockIsExclusiveAndReleasable() throws {
+        let first = StatusItemController(model: model, paths: paths)
+        let second = StatusItemController(model: model, paths: paths)
+
+        XCTAssertTrue(first.acquireSingleton())
+        XCTAssertFalse(second.acquireSingleton(), "ikinci örnek kilidi alamamalı")
+
+        first.releaseSingleton()
+        XCTAssertTrue(second.acquireSingleton(), "kilit bırakılınca alınabilmeli")
+        second.releaseSingleton()
+    }
+
+    func testStalePidFileDoesNotBlockSingleton() throws {
+        // Eski sürümün bıraktığı, canlı bir pid'e (kendi pid'imiz) işaret eden dosya.
+        try FileManager.default.createDirectory(at: paths.stateDirectory, withIntermediateDirectories: true)
+        try Data("\(getpid())".utf8).write(to: paths.stateDirectory.appendingPathComponent("agent.pid"))
+
+        let controller = StatusItemController(model: model, paths: paths)
+        XCTAssertTrue(controller.acquireSingleton())
+        controller.releaseSingleton()
     }
 
     func testMenuAlwaysContainsWorkdirLogsAndSigninItems() throws {

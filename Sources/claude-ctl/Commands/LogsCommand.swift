@@ -15,22 +15,12 @@ enum LogsCommand {
 
         guard parsed.has("follow") else { return }
 
-        // Canlı takip: yeni satırları yazdır.
-        let logFile = LogReader.defaultLogDirectory.appendingPathComponent("main.log")
-        var position = (try? FileManager.default.attributesOfItem(atPath: logFile.path)[.size] as? Int64) ?? 0
+        // Canlı takip: yeni satırları yazdır (dosya döndürme algılanır).
+        let follower = LogFollower(url: LogReader().logFile)
         while true {
             Thread.sleep(forTimeInterval: 1)
-            guard let size = try? FileManager.default.attributesOfItem(atPath: logFile.path)[.size] as? Int64, size > position else {
-                continue
-            }
-            if let handle = try? FileHandle(forReadingFrom: logFile) {
-                handle.seek(toFileOffset: UInt64(position))
-                let data = handle.readDataToEndOfFile()
-                position = size
-                if let text = String(data: data, encoding: .utf8), !text.isEmpty {
-                    Output.line(text.trimmingCharacters(in: .newlines))
-                }
-                try? handle.close()
+            for line in follower.poll() {
+                Output.line(line)
             }
         }
     }

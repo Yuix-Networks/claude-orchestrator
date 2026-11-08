@@ -27,7 +27,10 @@ enum AgentCommand {
         let controller = StatusItemController(model: AgentModel(ctl: ClaudeCtl()))
         NSApplication.shared.setActivationPolicy(.accessory)
         guard controller.start() else {
-            Output.error("agent zaten çalışıyor", code: ExitCode.runtime)
+            // 0 ile çıkılır: launchd (`KeepAlive.SuccessfulExit = false`) ikinci
+            // örneği yeniden başlatmaya çalışmasın.
+            FileHandle.standardError.write(Data("agent zaten çalışıyor\n".utf8))
+            exit(ExitCode.success)
         }
         NSApplication.shared.run()
     }

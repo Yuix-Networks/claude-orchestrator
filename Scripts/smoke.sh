@@ -25,8 +25,8 @@ FAILURES=0
 cleanup() {
     "$BIN" stop "$SMOKE_NAME" >/dev/null 2>&1 || true
     "$BIN" stop "$SMOKE2_NAME" >/dev/null 2>&1 || true
-    "$BIN" remove "$SMOKE_NAME" --purge >/dev/null 2>&1 || true
-    "$BIN" remove "$SMOKE2_NAME" --purge >/dev/null 2>&1 || true
+    "$BIN" remove "$SMOKE_NAME" --purge --permanent --yes >/dev/null 2>&1 || true
+    "$BIN" remove "$SMOKE2_NAME" --purge --permanent --yes >/dev/null 2>&1 || true
     rm -rf "$WORK"
 }
 trap cleanup EXIT

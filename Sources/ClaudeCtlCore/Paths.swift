@@ -26,6 +26,12 @@ public struct Paths: Sendable, Equatable {
     /// Agent singleton pid dosyasının tutulduğu dizin.
     public var stateDirectory: URL { root.appendingPathComponent("state") }
 
+    /// `session move` yedekleri.
+    public var backupsDir: URL { root.appendingPathComponent("backups") }
+
+    /// Oturum özetleri önbelleği (silinmesi güvenlidir).
+    public var sessionCacheFile: URL { root.appendingPathComponent("cache/sessions.json") }
+
     public func instanceDir(_ name: String) -> URL {
         instancesRoot.appendingPathComponent(name)
     }

@@ -106,14 +106,22 @@ public final class ClaudeCtl {
     public let seeder: ProfileSeeder
     public let logReader: LogReader
     public let appPath: String
+    /// Varsayılan (instance olmayan) Claude kurulumunun config dizini (`~/.claude`).
+    public let defaultCodeDir: URL
+    /// Varsayılan Claude kurulumunun Electron profili.
+    public let defaultProfileDir: URL
 
     public init(
         paths: Paths = .default,
         appPath: String = ClaudeApp.defaultPath,
         processListing: ProcessListing = PsProcessListing(),
         launcher: Launching? = nil,
-        logReader: LogReader = LogReader()
+        logReader: LogReader = LogReader(),
+        defaultCodeDir: URL = ClaudeCtl.defaultCodeDir,
+        defaultProfileDir: URL = ClaudeCtl.defaultProfileDir
     ) {
+        self.defaultCodeDir = defaultCodeDir
+        self.defaultProfileDir = defaultProfileDir
         self.paths = paths
         self.store = InstanceStore(paths: paths)
         self.launcher = launcher ?? Launcher(appPath: appPath, processListing: processListing)
@@ -126,7 +134,7 @@ public final class ClaudeCtl {
 
     /// Yeni instance oluşturur (config + profil dizinleri).
     public func new(name: String, workdir: String?) throws -> Instance {
-        try NameValidator.validate(name)
+        try validateNewName(name)
 
         let config = try store.load()
         guard config.instances[name] == nil else {
@@ -274,9 +282,15 @@ public final class ClaudeCtl {
 
     /// Instance'ı siler.
     ///
-    /// - Parameter purge: `true` ise profil klasörü de diskinten silinir.
-    ///   `false` ise veriler korunur (instance yeniden oluşturulduğunda geri gelir).
-    public func remove(name: String, purge: Bool, force: Bool = false) throws {
+    /// - Parameters:
+    ///   - purge: `true` ise instance dizini (profil + Claude Code config +
+    ///     oturumlar) de kaldırılır. `false` ise veriler korunur (instance
+    ///     yeniden oluşturulduğunda geri gelir).
+    ///   - permanent: `purge` ile birlikte `true` ise veriler kalıcı silinir;
+    ///     `false` (varsayılan) ise Çöp Kutusu'na taşınır ve geri alınabilir.
+    /// - Returns: Veriler Çöp Kutusu'na taşındıysa yeni konumları.
+    @discardableResult
+    public func remove(name: String, purge: Bool, force: Bool = false, permanent: Bool = false) throws -> URL? {
         _ = try store.instance(named: name)
 
         if !force, launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
@@ -285,15 +299,29 @@ public final class ClaudeCtl {
             )
         }
 
+        var trashedTo: URL?
         if purge {
             let instanceDir = paths.instanceDir(name)
             if FileManager.default.fileExists(atPath: instanceDir.path) {
-                try FileManager.default.removeItem(at: instanceDir)
+                if permanent {
+                    try FileManager.default.removeItem(at: instanceDir)
+                } else {
+                    var resulting: NSURL?
+                    do {
+                        try FileManager.default.trashItem(at: instanceDir, resultingItemURL: &resulting)
+                    } catch {
+                        throw ClaudeCtlError.runtime(
+                            "Çöp Kutusu'na taşınamadı: \(instanceDir.path) — \(error.localizedDescription) (kalıcı silmek için: --permanent)"
+                        )
+                    }
+                    trashedTo = resulting as URL?
+                }
             }
         }
 
         try store.remove(named: name)
         try? FileManager.default.removeItem(at: paths.stateFile(name))
+        return trashedTo
     }
 
     // MARK: - list / status

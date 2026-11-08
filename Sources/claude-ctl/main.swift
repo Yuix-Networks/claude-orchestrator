@@ -11,16 +11,27 @@ KULLANIM
   claude-ctl <komut> [argümanlar]
 
 KOMUTLAR
-  new <ad> --workdir <yol>        Instance oluşturur ve profili tohumlar
+  new <ad> [--workdir <yol>] [--sessions-from <instance>]
+                                 Instance oluşturur (isteğe bağlı: workdir, oturumlar)
   start <ad> [--folder <yol>]     Instance'ı başlatır (ayrı profil + config)
   stop <ad>                      Instance'ı durdurur
   list [--json]                  Instance'ların durumu
   status <ad> [--json]           Tek instance'ın ayrıntısı
   logs <ad> [-n N] [-f]          Log satırları (-f: takip et)
   open <ad> [--target workdir|profile]
-  signin <ad> [--restart]        Giriş rehberi (claude:// handler çakışması)
+  signin <ad> [--restart] [--exclusive]
+                                 Giriş rehberi; --exclusive diğerlerini giriş süresince kapatır
   doctor [<ad>] [--json]         Sağlık kontrolleri
-  remove <ad> [--purge] [--force] Instance'ı siler (--purge: veriler de)
+  remove <ad> [--purge [--permanent]] [--force] [--yes]
+                                 Instance'ı siler (--purge: veriler Çöp Kutusu'na)
+  clone <ad> --as <yeni-ad> [--workdir <yol>]
+                                 Instance'ı profil + oturumlarıyla klonlar
+  session list [--instance <ad>] [--project <yol>] [--running] [--json]
+  session show <id> [--instance <ad>] [--json]
+  session copy|move <id> --to <instance> [--instance <kaynak>] [--force]
+  session last --from <instance> --to <instance> [--copy] [--force]
+                                 Claude Code oturumlarını instance'lar arasında aktarır
+                                 ('default' = instance dışı Claude kurulumu)
   agent [--install|--uninstall]  Menü çubuğu ikonları
 
 VERİ KONUMU
@@ -64,6 +75,10 @@ do {
         try RemoveCommand.run(rest)
     case "agent":
         try AgentCommand.run(rest)
+    case "clone":
+        try CloneCommand.run(rest)
+    case "session":
+        try SessionCommand.run(rest)
     default:
         Output.error("bilinmeyen komut: \(command)", code: ExitCode.usage)
     }

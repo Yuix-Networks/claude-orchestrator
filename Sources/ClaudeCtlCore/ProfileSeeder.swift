@@ -53,11 +53,6 @@ public struct ProfileSeeder {
         )
     }
 
-    /// Instance adından profil dizini türeterek tohumlar.
-    public func seed(instanceName: String, workdir: String) throws -> SeedResult {
-        try seed(profileDir: paths.profileDir(instanceName), workdir: workdir)
-    }
-
     // MARK: - Güvenli klasörler
 
     private func addTrustedFolder(profileDir: URL, workdir: String) throws -> Bool {
@@ -136,7 +131,7 @@ public struct ProfileSeeder {
             byAccount = [:]
         }
 
-        guard let accountUUID = byAccount.keys.sorted().first ?? accountUUIDFromBridgeState(profileDir: profileDir) else {
+        guard let accountUUID = Self.activeAccountUUID(profileDir: profileDir, knownAccounts: Array(byAccount.keys)) else {
             // Hesap henüz bilinmiyor (ilk giriş yapılmamış): preset yazılmaz.
             return (nil, false)
         }
@@ -187,15 +182,37 @@ public struct ProfileSeeder {
         return (accountUUID, !alreadyExists)
     }
 
-    /// `bridge-state.json` anahtarları `<workspaceId>:<accountUuid>` biçimindedir.
-    private func accountUUIDFromBridgeState(profileDir: URL) -> String? {
-        let url = profileDir.appendingPathComponent("bridge-state.json")
-        guard let read = try? readObject(at: url),
-              case let .object(object) = read,
-              let key = object.keys.sorted().first
-        else { return nil }
-        guard let last = key.split(separator: ":").last else { return nil }
-        return String(last)
+    /// Profilde **etkin** hesabın UUID'si.
+    ///
+    /// Öncelik sırası:
+    /// 1. `config.json` → `lastKnownAccountUuid` (Claude'un son giriş yapan hesabı)
+    /// 2. `config.json` → `bootSideSessions.accountUuid`
+    /// 3. `bridge-state.json` anahtarı (`<workspaceId>:<accountUuid>`) — tek anahtar varsa
+    /// 4. Preset dosyasında tek hesap varsa o hesap
+    ///
+    /// Birden çok aday olup hiçbiri etkin hesabı göstermiyorsa `nil` döner:
+    /// preset yanlış hesaba yazılmasın diye tahmin yapılmaz.
+    public static func activeAccountUUID(profileDir: URL, knownAccounts: [String] = []) -> String? {
+        if let config = readJSONObject(profileDir.appendingPathComponent("config.json")) {
+            if let uuid = config["lastKnownAccountUuid"] as? String, !uuid.isEmpty {
+                return uuid
+            }
+            if let boot = config["bootSideSessions"] as? [String: Any],
+               let uuid = boot["accountUuid"] as? String, !uuid.isEmpty {
+                return uuid
+            }
+        }
+        if let bridge = readJSONObject(profileDir.appendingPathComponent("bridge-state.json")) {
+            let accounts = Set(bridge.keys.compactMap { $0.split(separator: ":").last.map(String.init) })
+            if accounts.count == 1 { return accounts.first }
+        }
+        if knownAccounts.count == 1 { return knownAccounts.first }
+        return nil
+    }
+
+    private static func readJSONObject(_ url: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     // MARK: - JSON yardımcıları

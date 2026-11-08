@@ -26,6 +26,12 @@ public protocol Launching: AnyObject {
     func lockHolderPid(profileDir: URL) -> Int32?
     func runningPid(profileDir: URL) -> Int32?
     func launch(_ request: LaunchRequest) throws
+    /// `--user-data-dir` olmadan çalışan (varsayılan profilli) Claude'un pid'i.
+    func runningDefaultPid() -> Int32?
+}
+
+public extension Launching {
+    func runningDefaultPid() -> Int32? { nil }
 }
 
 /// Claude Desktop instance'larını başlatır, süreçlerini bulur ve kilitleri denetler.
@@ -104,6 +110,15 @@ public final class Launcher {
             executableName(of: entry.command) == executable && containsExactMarker(entry.command, marker)
         }
         return matches.map(\.pid).min()
+    }
+
+    /// Varsayılan profili kullanan (instance olmayan) Claude ana sürecinin pid'i.
+    public func runningDefaultPid() -> Int32? {
+        let executable = "\(appPath)/Contents/MacOS/Claude"
+        return processListing.processes()
+            .filter { executableName(of: $0.command) == executable && !$0.command.contains("--user-data-dir=") }
+            .map(\.pid)
+            .min()
     }
 
     /// Instance'ı başlatır.

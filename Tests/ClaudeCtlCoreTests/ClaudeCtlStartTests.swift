@@ -7,6 +7,9 @@ final class FakeLauncher: Launching {
     var launchCount = 0
     var lastRequest: LaunchRequest?
     var launchShouldFail = false
+    var defaultPid: Int32?
+
+    func runningDefaultPid() -> Int32? { defaultPid }
 
     func launchArguments(_ request: LaunchRequest) -> [String] { [] }
 
@@ -297,7 +300,7 @@ final class ClaudeCtlStartTests: XCTestCase {
         try ctl.new(name: "work", workdir: nil)
         let profile = paths.profileDir("work")
 
-        try ctl.remove(name: "work", purge: true)
+        try ctl.remove(name: "work", purge: true, permanent: true)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: profile.path))
     }

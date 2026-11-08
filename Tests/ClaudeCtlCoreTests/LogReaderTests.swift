@@ -100,4 +100,57 @@ final class LogReaderTests: XCTestCase {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
         return formatter.date(from: string)!
     }
+
+    // MARK: - Büyük dosya (sondan okuma)
+
+    func testReadsTailOfLargeFileAcrossChunkBoundaries() throws {
+        // Blok boyutunu birkaç kez aşan bir dosya: satırlar blok sınırında bölünür.
+        let count = 5_000
+        let lines = (0..<count).map { "2026-11-08 12:00:00 [info] satır \($0) " + String(repeating: "x", count: 40) }
+        try writeLog(lines)
+
+        let result = LogReader(logDirectory: logDirectory).lines(since: Date.distantPast, limit: 3)
+
+        XCTAssertEqual(result, Array(lines.suffix(3)))
+    }
+
+    func testUnlimitedReturnsAllLinesInOrder() throws {
+        let lines = (0..<3_000).map { "satır \($0) " + String(repeating: "y", count: 50) }
+        try writeLog(lines)
+
+        let result = LogReader(logDirectory: logDirectory).lines(since: Date.distantPast, limit: 0)
+
+        XCTAssertEqual(result, lines)
+    }
+
+    // MARK: - Takip (follow)
+
+    private func append(_ text: String) throws {
+        let url = logDirectory.appendingPathComponent("main.log")
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(text.utf8))
+        try handle.close()
+    }
+
+    func testFollowerReturnsOnlyNewCompleteLines() throws {
+        try writeLog(["eski"])
+        let follower = LogFollower(url: logDirectory.appendingPathComponent("main.log"))
+
+        XCTAssertEqual(follower.poll(), [])
+        try append("yeni 1\nyarım")
+        XCTAssertEqual(follower.poll(), ["yeni 1"], "yarım satır tüketilmemeli")
+        try append(" satır\n")
+        XCTAssertEqual(follower.poll(), ["yarım satır"])
+    }
+
+    func testFollowerDetectsRotation() throws {
+        try writeLog(["eski 1", "eski 2", "eski 3"])
+        let follower = LogFollower(url: logDirectory.appendingPathComponent("main.log"))
+
+        // Döndürme: dosya yeni bir dosyayla değiştirilir (atomik yazma → yeni inode).
+        try writeLog(["döndürüldü"])
+
+        XCTAssertEqual(follower.poll(), ["döndürüldü"])
+    }
 }

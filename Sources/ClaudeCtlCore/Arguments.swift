@@ -13,7 +13,9 @@ public struct Arguments {
     ]
 
     /// Değer alan bayraklar (sonraki argümanı tüketir); diğerleri boolean'dır.
-    public static let valueTakingFlags: Set<String> = ["workdir", "folder", "target", "lines"]
+    public static let valueTakingFlags: Set<String> = [
+        "workdir", "folder", "target", "lines", "instance", "project", "to", "from", "as", "sessions-from"
+    ]
 
     public private(set) var positionals: [String] = []
     public private(set) var flags: [String: String] = [:]

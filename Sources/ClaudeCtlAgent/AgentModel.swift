@@ -3,6 +3,8 @@ import Foundation
 
 /// Menü çubuğu ikonundaki bir eylem.
 public enum AgentAction: Equatable {
+    /// Durmuş instance'ı başlat.
+    case start
     /// Instance'ı öne getir.
     case activate
     /// Instance'ı durdur.
@@ -48,6 +50,7 @@ public final class AgentModel {
     /// Bir instance için menü maddeleri.
     public func menuItems(for status: InstanceStatus) -> [AgentMenuItem] {
         [
+            AgentMenuItem(title: "Başlat", action: .start, isEnabled: !status.isRunning),
             AgentMenuItem(title: "Öne Getir", action: .activate, isEnabled: status.isRunning),
             AgentMenuItem(title: "Durdur", action: .stop, isEnabled: status.isRunning),
             AgentMenuItem(title: "Workdir'yi Aç", action: .openWorkdir, isEnabled: status.workdir != nil),
@@ -60,6 +63,12 @@ public final class AgentModel {
     /// Eylemi gerçekleştirir.
     public func perform(_ action: AgentAction, for status: InstanceStatus) {
         switch action {
+        case .start:
+            do {
+                _ = try ctl.start(name: status.name, folder: nil)
+            } catch {
+                AppKitSupport.presentMessage(title: "Başlatılamadı — \(status.name)", message: "\(error)")
+            }
         case .activate:
             guard let pid = status.pid else { return }
             AppKitSupport.activateProcess(pid: pid)
