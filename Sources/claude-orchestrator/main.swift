@@ -30,6 +30,11 @@ KOMUTLAR
   project add <yol> [--name <ad>] [--folder <ek-yol>]... [--replace]
   project list | remove <ad> [--keep] | sync [--instance <ad>]
   project import --from <instance|default>
+  project apply [<dosya>] [--prune] [--dry-run]
+                                 projects.json'u uygular (varsayılan
+                                 ~/.config/claude-orchestrator/projects.json)
+  project export [<dosya>] [--force]
+                                 Kayıtlı projeleri projects.json biçiminde yazar
                                  Tüm instance'larda aynı projeler (Desktop'ta "environment");
                                  takma ad: env
   session list [--instance <ad>] [--project <yol>] [--running] [--json]

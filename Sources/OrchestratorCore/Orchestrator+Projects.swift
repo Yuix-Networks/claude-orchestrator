@@ -101,19 +101,27 @@ extension Orchestrator {
         }
         try store.save(config)
         guard !keepInInstances else { return [] }
+        return withdraw([project], remaining: config)
+    }
 
+    /// Projelerin ortamlarını tüm instance'lardan kaldırır.
+    ///
+    /// - Parameter remaining: Kaldırma sonrası config; burada hâlâ kayıtlı bir
+    ///   projenin veya instance workdir'inin kullandığı klasörler güvenli
+    ///   klasörlerden çıkarılmaz.
+    func withdraw(_ projects: [Project], remaining config: Config) -> [ProjectRemoveResult] {
+        guard !projects.isEmpty else { return [] }
         let stillUsed = Set(config.projects.values.flatMap { [$0.path] + $0.additionalFolders })
+        let cwds = projects.map(\.path)
+        let candidates = projects.flatMap { [$0.path] + $0.additionalFolders }
+
         var results: [ProjectRemoveResult] = []
         for instance in config.instances.values.sorted(by: { $0.name < $1.name }) {
             let protected = stillUsed.union(instance.workdir.map { [$0] } ?? [])
-            let folders = ([project.path] + project.additionalFolders).filter { !protected.contains($0) }
+            let folders = candidates.filter { !protected.contains($0) }
             let running = launcher.runningPid(profileDir: paths.profileDir(instance.name)) != nil
             do {
-                let removed = try seeder.remove(
-                    cwds: [project.path],
-                    trustedFolders: folders,
-                    from: paths.profileDir(instance.name)
-                )
+                let removed = try seeder.remove(cwds: cwds, trustedFolders: folders, from: paths.profileDir(instance.name))
                 results.append(ProjectRemoveResult(instance: instance.name, isRunning: running, removed: removed, error: nil))
             } catch {
                 results.append(ProjectRemoveResult(instance: instance.name, isRunning: running, removed: nil, error: "\(error)"))
@@ -215,11 +223,14 @@ extension Orchestrator {
     }
 
     /// `~` ve göreli yolu mutlak, standart yola çevirir; klasör olmalı.
-    static func resolveDirectory(_ path: String) throws -> String {
+    ///
+    /// - Parameter base: Göreli yolların tabanı (varsayılan: çalışma dizini).
+    static func resolveDirectory(_ path: String, relativeTo base: URL? = nil) throws -> String {
         let expanded = (path as NSString).expandingTildeInPath
+        let root = base ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
         let url = expanded.hasPrefix("/")
             ? URL(fileURLWithPath: expanded)
-            : URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(expanded)
+            : root.appendingPathComponent(expanded)
         let resolved = url.standardizedFileURL.path
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDirectory), isDirectory.boolValue else {

@@ -12,6 +12,9 @@ enum ProjectCommand {
     project remove <ad> [--keep] [--json]
     project sync [--instance <ad>] [--json]
     project import --from <instance|default> [--json]
+    project apply [<dosya>] [--prune] [--dry-run] [--json]
+    project export [<dosya>] [--force]
+    (varsayılan dosya: ~/.config/claude-orchestrator/projects.json)
     """
 
     static func run(_ args: [String]) throws {
@@ -25,6 +28,8 @@ enum ProjectCommand {
         case "remove", "rm": try remove(rest)
         case "sync": try sync(rest)
         case "import": try importFrom(rest)
+        case "apply": try applyManifest(rest)
+        case "export": try exportManifest(rest)
         default:
             throw OrchestratorError.usage("project: bilinmeyen alt komut: \(sub)\n\(usage)")
         }
@@ -158,6 +163,93 @@ enum ProjectCommand {
             Output.line("  atlandı: \(SessionCommand.shortPath(skipped.path, width: 60)) (\(skipped.reason))")
         }
         if !result.imported.isEmpty { report(sync) }
+    }
+
+    // MARK: - apply
+
+    static func applyManifest(_ args: [String]) throws {
+        let parsed = try Arguments(args, allowed: ["prune", "dry-run", "json"])
+        let url = manifestURL(parsed.positionals.first)
+        let ctl = Orchestrator()
+        let plan = try ctl.planApply(try Orchestrator.loadManifest(url), prune: parsed.has("prune"))
+        let dryRun = parsed.has("dry-run")
+        let result = dryRun ? nil : try ctl.apply(plan)
+
+        if parsed.has("json") {
+            Output.json([
+                "file": url.path,
+                "dryRun": dryRun,
+                "added": plan.toAdd.map(\.name),
+                "updated": plan.toUpdate.map(\.new.name),
+                "renamed": plan.toRename.map { ["from": $0.old.name, "to": $0.new.name] },
+                "removed": plan.toRemove.map(\.name),
+                "untracked": plan.untracked.map(\.name),
+                "unchanged": plan.unchanged.count,
+                "instances": (result?.synced ?? []).map(dictionary)
+            ])
+            return
+        }
+
+        Output.line("\(dryRun ? "plan" : "uygulandı"): \(url.path)")
+        for project in plan.toAdd { Output.line("  + \(project.name)  \(SessionCommand.shortPath(project.path, width: 60))") }
+        for change in plan.toRename { Output.line("  ~ \(change.old.name) → \(change.new.name)") }
+        for change in plan.toUpdate { Output.line("  ~ \(change.new.name)  \(describe(change))") }
+        for project in plan.toRemove { Output.line("  - \(project.name)") }
+        if !plan.hasChanges { Output.line("  değişiklik yok (\(plan.unchanged.count) proje güncel)") }
+        if !plan.untracked.isEmpty {
+            let names = plan.untracked.map(\.name).joined(separator: ", ")
+            Output.line("  not: dosyada olmayan \(plan.untracked.count) kayıtlı proje kaldı (\(names)) — silmek için --prune")
+        }
+        if let result, plan.hasChanges {
+            Output.line("")
+            report(result.synced)
+            for failure in result.withdrawn where failure.error != nil {
+                Output.line("  \(failure.instance): eski ortam kaldırılamadı — \(failure.error ?? "")")
+            }
+        } else if dryRun, plan.hasChanges {
+            Output.line("")
+            Output.line("uygulamak için: claude-orchestrator project apply\(parsed.positionals.first.map { " \($0)" } ?? "")\(parsed.has("prune") ? " --prune" : "")")
+        }
+    }
+
+    static func describe(_ change: ProjectChange) -> String {
+        var parts: [String] = []
+        if change.old.path != change.new.path {
+            parts.append("klasör: \(SessionCommand.shortPath(change.new.path, width: 50))")
+        }
+        let added = change.new.additionalFolders.filter { !change.old.additionalFolders.contains($0) }
+        let removed = change.old.additionalFolders.filter { !change.new.additionalFolders.contains($0) }
+        if !added.isEmpty { parts.append("+\(added.count) ek klasör") }
+        if !removed.isEmpty { parts.append("-\(removed.count) ek klasör") }
+        if parts.isEmpty { parts.append("ek klasör sırası") }
+        return parts.joined(separator: ", ")
+    }
+
+    // MARK: - export
+
+    static func exportManifest(_ args: [String]) throws {
+        let parsed = try Arguments(args, allowed: ["force"])
+        let text = try Orchestrator().exportManifest()
+        guard let target = parsed.positionals.first else {
+            print(text, terminator: "")
+            return
+        }
+        let url = manifestURL(target)
+        if FileManager.default.fileExists(atPath: url.path), !parsed.has("force") {
+            throw OrchestratorError.runtime("dosya zaten var: \(url.path) — üzerine yazmak için --force")
+        }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(text.utf8).write(to: url, options: .atomic)
+        Output.line("yazıldı: \(url.path)")
+    }
+
+    /// Verilen yol (`~` dahil) ya da varsayılan proje dosyası.
+    static func manifestURL(_ raw: String?) -> URL {
+        guard let raw else { return Orchestrator.defaultManifestURL }
+        let expanded = (raw as NSString).expandingTildeInPath
+        return expanded.hasPrefix("/")
+            ? URL(fileURLWithPath: expanded)
+            : URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(expanded)
     }
 
     // MARK: - Çıktı

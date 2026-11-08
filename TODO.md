@@ -139,6 +139,8 @@ claude-orchestrator session last --from <instance> --to <instance>
 - [x] Profildeki tüm hesaplara yazılır; aynı klasörde var olan ortamın ayarlarına dokunulmaz
 - [ ] Canlı doğrulama: girişli bir instance'ta yazılan ortamın Code sekmesinde göründüğü
       henüz gözle doğrulanmadı (dosya biçimi gerçek profildeki ortamlarla aynı)
+- [x] `project apply` / `project export`: elle düzenlenen `projects.json`
+      (`~/.config/claude-orchestrator/`), önce tüm dosya doğrulanır, `--dry-run`, `--prune`
 - [ ] Çalışan instance'a anında yansıtma yok (Claude dosyayı bellekte tutuyor; yeniden
       başlatma gerekiyor)
 

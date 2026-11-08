@@ -121,6 +121,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 | `claude-orchestrator signin <name> [--restart] [--exclusive]` | Sign-in guide; `--exclusive` closes the other instances while you sign in |
 | `claude-orchestrator doctor [<name>] [--json]` | Health checks: app version, profile, lock, disk, workdir, session |
 | `claude-orchestrator clone <name> --as <new> [--workdir <path>]` | Copy an instance with its profile, config and sessions |
+| `claude-orchestrator project apply [<file>]` | Apply a hand-edited `projects.json` to every instance |
 | `claude-orchestrator project …` (alias `env`) | Projects shared by every instance — Claude Desktop calls them environments (see below) |
 | `claude-orchestrator session …` | List, inspect, copy and move Claude Code sessions (see below) |
 | `claude-orchestrator remove <name> [--purge [--permanent]] [--yes]` | Delete the instance; `--purge` moves its data to the Trash (asks first) |
@@ -148,6 +149,38 @@ claude-orchestrator project remove "Site"            # also removes it from the 
 
 - The list lives in `config.json`. New instances get it automatically, and every
   `start` applies it again.
+
+### Keeping the list in a file
+
+You can edit the list by hand in a JSON file and apply it. The default file is
+`~/.config/claude-orchestrator/projects.json`:
+
+```json
+{
+  "projects": [
+    { "name": "shop", "path": "~/workspace/shop/shop-backend",
+      "folders": ["~/workspace/shop/shop-frontend"] },
+    { "path": "~/workspace/blog" }
+  ]
+}
+```
+
+```bash
+claude-orchestrator project export ~/.config/claude-orchestrator/projects.json  # start from what you have
+claude-orchestrator project apply --dry-run    # show the plan, change nothing
+claude-orchestrator project apply              # add, update and rename projects
+claude-orchestrator project apply --prune      # also delete projects that are no longer in the file
+```
+
+- `name` and `folders` are optional. Paths may use `~` or be relative to the file.
+- `//` comments and trailing commas are accepted.
+- The whole file is checked first: every missing folder, duplicate name and misspelled
+  key is reported together, and nothing changes until the file is clean.
+- Without `--prune`, projects missing from the file stay registered. The plan lists
+  them.
+- A project whose folder, extra folders or name changed has its environment rewritten
+  in every instance. That resets Desktop settings such as the model for that
+  environment.
 - An environment belongs to an account, so before the first sign-in only the folder is
   trusted. The environment itself is written on the first `start` after you sign in.
   In a profile that has seen several accounts, every account gets the project.
