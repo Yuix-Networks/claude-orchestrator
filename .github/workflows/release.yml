@@ -30,12 +30,16 @@ jobs:
             -derivedDataPath .build/xcode \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
           mkdir -p .build/artifacts
-          BIN="$(find .build/xcode/Build/Products/Release -name claude-orchestrator -type f | head -1)"
-          test -n "$BIN"
+          # Kesin yol: `find … | head -1` dSYM içindeki DWARF dosyasını seçebiliyor
+          # (v0.1.0–v0.2.1 sürümleri bu yüzden çalışmayan bir dosya yayınladı).
+          BIN=".build/xcode/Build/Products/Release/claude-orchestrator"
+          file "$BIN" | grep -q "executable" || { file "$BIN"; echo "çalıştırılabilir değil"; exit 1; }
           # `install -m 755`: çalıştırma izni tarball'a girmeli (v0.2.0'da `cp` ile kayboldu).
           install -m 755 "$BIN" .build/artifacts/claude-orchestrator
           test -x .build/artifacts/claude-orchestrator
           lipo -info .build/artifacts/claude-orchestrator
+          .build/artifacts/claude-orchestrator --version | grep -q "${GITHUB_REF_NAME#v}" \
+            || { echo "binary çalışmadı ya da sürümü yanlış"; exit 1; }
 
       - name: Create archive and checksum
         run: |
