@@ -1,3 +1,4 @@
+import ClaudeCtlAgent
 import ClaudeCtlCore
 import Foundation
 
@@ -32,7 +33,7 @@ do {
     case "remove":
         try RemoveCommand.run(rest)
     case "agent":
-        Output.error("agent modu henüz uygulanmadı", code: ExitCode.usage)
+        try AgentCommand.run(rest)
     default:
         Output.error("bilinmeyen komut: \(command)", code: ExitCode.usage)
     }

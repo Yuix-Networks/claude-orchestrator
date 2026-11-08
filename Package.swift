@@ -15,7 +15,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "ClaudeCtlCore", swiftSettings: swiftV5),
-        .executableTarget(name: "claude-ctl", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5),
-        .testTarget(name: "ClaudeCtlCoreTests", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5)
+        .target(name: "ClaudeCtlAgent", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5),
+        .executableTarget(name: "claude-ctl", dependencies: ["ClaudeCtlCore", "ClaudeCtlAgent"], swiftSettings: swiftV5),
+        .testTarget(name: "ClaudeCtlCoreTests", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5),
+        .testTarget(name: "ClaudeCtlAgentTests", dependencies: ["ClaudeCtlAgent", "ClaudeCtlCore"], swiftSettings: swiftV5)
     ]
 )

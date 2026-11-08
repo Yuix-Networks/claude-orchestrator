@@ -10,7 +10,7 @@ public struct PsProcessListing: ProcessListing {
     public init() {}
 
     public func processes() -> [(pid: Int32, command: String)] {
-        guard let output = try? run("/bin/ps", ["-axo", "pid=,command="]) else { return [] }
+        guard let output = run("/bin/ps", ["-axo", "pid=,command="]) else { return [] }
 
         return output
             .split(separator: "\n")
