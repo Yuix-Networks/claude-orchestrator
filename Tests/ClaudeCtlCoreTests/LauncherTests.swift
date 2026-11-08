@@ -66,6 +66,19 @@ final class LauncherTests: XCTestCase {
         XCTAssertTrue(arguments.contains("CLAUDE_CONFIG_DIR=/Users/me/Library/Application Support/claude-ctl/instances/x/claude-code"))
     }
 
+    func testOpenArgumentsDoNotRepeatTheProgramName() {
+        let request = LaunchRequest(appPath: "/Applications/Claude.app", profileDir: "/p", codeDir: "/c")
+        let arguments = makeLauncher().openArguments(request)
+
+        XCTAssertEqual(arguments.first, "-n", "program adı argümanlarda tekrarlanmamalı")
+        XCTAssertFalse(arguments.contains("open"))
+        XCTAssertEqual(arguments, [
+            "-n", "-a", "/Applications/Claude.app",
+            "--args", "--user-data-dir=/p",
+            "--env", "CLAUDE_CONFIG_DIR=/c"
+        ])
+    }
+
     func testIsProfileLockedReturnsTrueWhenSingletonLockExists() throws {
         try FileManager.default.createDirectory(at: profileDir, withIntermediateDirectories: true)
         try Data().write(to: profileDir.appendingPathComponent("SingletonLock"))

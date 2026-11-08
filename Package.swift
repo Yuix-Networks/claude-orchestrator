@@ -10,10 +10,12 @@ let package = Package(
     name: "claude-ctl",
     platforms: [.macOS(.v13)],
     products: [
-        .library(name: "ClaudeCtlCore", targets: ["ClaudeCtlCore"])
+        .library(name: "ClaudeCtlCore", targets: ["ClaudeCtlCore"]),
+        .executable(name: "claude-ctl", targets: ["claude-ctl"])
     ],
     targets: [
         .target(name: "ClaudeCtlCore", swiftSettings: swiftV5),
+        .executableTarget(name: "claude-ctl", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5),
         .testTarget(name: "ClaudeCtlCoreTests", dependencies: ["ClaudeCtlCore"], swiftSettings: swiftV5)
     ]
 )

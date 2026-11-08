@@ -19,6 +19,14 @@ public struct LaunchRequest: Equatable {
     }
 }
 
+/// Instance başlatma davranışı. Testlerde sahte uygulanabilir.
+public protocol Launching: AnyObject {
+    func launchArguments(_ request: LaunchRequest) -> [String]
+    func isProfileLocked(profileDir: URL) -> Bool
+    func runningPid(profileDir: URL) -> Int32?
+    func launch(_ request: LaunchRequest) throws
+}
+
 /// Claude Desktop instance'larını başlatır, süreçlerini bulur ve kilitleri denetler.
 public final class Launcher {
     public static let defaultAppPath = "/Applications/Claude.app"
@@ -37,7 +45,7 @@ public final class Launcher {
         self.fileManager = fileManager
     }
 
-    /// `open` komutunun argüman listesi.
+    /// `open` komutunun argüman listesi (program adı dahil).
     ///
     /// Sıra önemlidir: `open -n -a <app> --args --user-data-dir=… --env CLAUDE_CONFIG_DIR=…`
     public func launchArguments(_ request: LaunchRequest) -> [String] {
@@ -48,6 +56,14 @@ public final class Launcher {
         ]
         arguments.append(contentsOf: request.extraArgs)
         return arguments
+    }
+
+    /// `open` programına verilecek argümanlar (program adı hariç).
+    ///
+    /// `Process.executableURL` zaten programı belirlediği için argüman
+    /// listesinde tekrar "open" bulunmamalıdır.
+    public func openArguments(_ request: LaunchRequest) -> [String] {
+        Array(launchArguments(request).dropFirst())
     }
 
     /// Profil başka bir süreç tarafından kullanılıyor mu? (Chromium `SingletonLock`)
@@ -68,7 +84,7 @@ public final class Launcher {
     public func launch(_ request: LaunchRequest) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = launchArguments(request)
+        process.arguments = openArguments(request)
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -94,3 +110,5 @@ public final class Launcher {
         return false
     }
 }
+
+extension Launcher: Launching {}
