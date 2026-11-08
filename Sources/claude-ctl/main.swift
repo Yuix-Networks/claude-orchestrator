@@ -17,6 +17,20 @@ do {
         try StartCommand.run(rest)
     case "stop":
         try StopCommand.run(rest)
+    case "list":
+        try ListCommand.run(rest)
+    case "status":
+        try StatusCommand.run(rest)
+    case "logs":
+        try LogsCommand.run(rest)
+    case "open":
+        try OpenCommand.run(rest)
+    case "signin":
+        try SigninCommand.run(rest)
+    case "doctor":
+        try DoctorCommand.run(rest)
+    case "remove":
+        try RemoveCommand.run(rest)
     case "agent":
         Output.error("agent modu henüz uygulanmadı", code: ExitCode.usage)
     default:

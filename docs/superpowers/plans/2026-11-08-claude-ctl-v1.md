@@ -471,6 +471,11 @@ Scripts/smoke.sh          # canlı E2E doğrulama betiği
   `signin <ad>` → `instructions` satırlarını numaralı yaz.
   `doctor [<ad>]` → kontrolleri listeler; herhangi biri `fail` ise exit 1, hepsi `ok`/`warn` ise exit 0.
 
+  **Task 6 sırasında eklendi:** `remove <ad> [--purge]` — instance'ı config'den siler,
+  `--purge` profil klasörünü de diskten siler. Plan ve spec'te instance silme yolu
+  yoktu; Task 9'un smoke betiği bunu temizleyemiyordu ve kullanıcı elle config
+  düzenlemek zorunda kalıyordu.
+
 - [ ] **Step 7: Testleri koş, hepsinin geçtiğini gör**
 
   Run: `swift test`

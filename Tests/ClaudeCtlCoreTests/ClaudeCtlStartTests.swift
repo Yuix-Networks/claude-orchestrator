@@ -226,4 +226,73 @@ final class ClaudeCtlStartTests: XCTestCase {
 
         XCTAssertFalse(result.wasRunning)
     }
+
+    // MARK: - remove
+
+    func testRemoveDeletesInstanceFromConfig() throws {
+        try ctl.new(name: "work", workdir: nil)
+
+        try ctl.remove(name: "work", purge: false)
+
+        XCTAssertTrue(try JSONFile.read(Config.self, from: paths.configFile)?.instances.isEmpty ?? true)
+    }
+
+    func testRemoveKeepsProfileDirectoryByDefault() throws {
+        try ctl.new(name: "work", workdir: nil)
+        let profile = paths.profileDir("work")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: profile.path))
+
+        try ctl.remove(name: "work", purge: false)
+
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: profile.path),
+            "varsayılan olarak profil klasörü korunmalı"
+        )
+    }
+
+    func testRemoveWithPurgeDeletesProfileDirectory() throws {
+        try ctl.new(name: "work", workdir: nil)
+        let profile = paths.profileDir("work")
+
+        try ctl.remove(name: "work", purge: true)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: profile.path))
+    }
+
+    func testRemoveThrowsNotFoundForUnknownInstance() throws {
+        XCTAssertThrowsError(try ctl.remove(name: "yok", purge: false)) { error in
+            guard case .notFound = error as? ClaudeCtlError else {
+                return XCTFail("notFound bekleniyordu: \(error)")
+            }
+        }
+    }
+
+    // MARK: - logs
+
+    func testLogsReturnsOnlyLinesSinceInstanceStart() throws {
+        let logDirectory = root.appendingPathComponent("logs")
+        try FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let before = formatter.string(from: Date(timeIntervalSince1970: 1_699_999_000))
+        let after = formatter.string(from: Date(timeIntervalSince1970: 1_700_000_500))
+        try "\(before) [info] [A] eski satır\n\(after) [info] [A] yeni satır\n"
+            .write(to: logDirectory.appendingPathComponent("main.log"), atomically: true, encoding: .utf8)
+
+        let reader = LogReader(logDirectory: logDirectory)
+        let scoped = ClaudeCtl(paths: paths, launcher: launcher, logReader: reader)
+        try scoped.new(name: "work", workdir: nil)
+        try JSONFile.write(
+            InstanceState(pid: 42, startedAt: start, claudeVersion: nil),
+            to: paths.stateFile("work")
+        )
+
+        let lines = try scoped.logs(name: "work", lines: 50)
+
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertTrue(lines[0].contains("yeni satır"))
+    }
 }

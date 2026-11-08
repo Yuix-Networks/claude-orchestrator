@@ -40,24 +40,85 @@ public struct StopResult: Equatable {
     }
 }
 
+/// Bir instance'ın anlık durumu.
+public struct InstanceStatus: Equatable {
+    public var name: String
+    public var workdir: String?
+    public var isRunning: Bool
+    public var pid: Int32?
+    public var startedAt: Date?
+    public var profileSizeBytes: Int64
+    /// Profilde oturum (cookie) dosyası var mı?
+    public var accountSignedIn: Bool
+
+    public init(
+        name: String,
+        workdir: String?,
+        isRunning: Bool,
+        pid: Int32?,
+        startedAt: Date?,
+        profileSizeBytes: Int64,
+        accountSignedIn: Bool
+    ) {
+        self.name = name
+        self.workdir = workdir
+        self.isRunning = isRunning
+        self.pid = pid
+        self.startedAt = startedAt
+        self.profileSizeBytes = profileSizeBytes
+        self.accountSignedIn = accountSignedIn
+    }
+}
+
+/// `open` komutunda hedeflenen klasör.
+public enum OpenTarget: String, Equatable {
+    case workdir
+    case profile
+}
+
+/// `signin` komutunun rehberi.
+public struct SigninPlan: Equatable {
+    public var instance: String
+    /// `claude://` handler'ın hangi instance'a gittiği (ölçülemiyorsa `nil`).
+    public var handlerInstance: String?
+    /// Çalışan diğer instance'lar (handler çakışması riski).
+    public var otherInstancesRunning: [String]
+    public var instructions: [String]
+
+    public init(
+        instance: String,
+        handlerInstance: String?,
+        otherInstancesRunning: [String],
+        instructions: [String]
+    ) {
+        self.instance = instance
+        self.handlerInstance = handlerInstance
+        self.otherInstancesRunning = otherInstancesRunning
+        self.instructions = instructions
+    }
+}
+
 /// `claude-ctl` iş mantığının giriş noktası.
 public final class ClaudeCtl {
     public let paths: Paths
     public let store: InstanceStore
     public let launcher: Launching
     public let seeder: ProfileSeeder
+    public let logReader: LogReader
     public let appPath: String
 
     public init(
         paths: Paths = .default,
         appPath: String = ClaudeApp.defaultPath,
         processListing: ProcessListing = PsProcessListing(),
-        launcher: Launching? = nil
+        launcher: Launching? = nil,
+        logReader: LogReader = LogReader()
     ) {
         self.paths = paths
         self.store = InstanceStore(paths: paths)
         self.launcher = launcher ?? Launcher(appPath: appPath, processListing: processListing)
         self.seeder = ProfileSeeder(paths: paths)
+        self.logReader = logReader
         self.appPath = appPath
     }
 
@@ -184,5 +245,166 @@ public final class ClaudeCtl {
 
         try? FileManager.default.removeItem(at: stateFile)
         return StopResult(wasRunning: true, forced: forced)
+    }
+
+    // MARK: - remove
+
+    /// Instance'ı siler.
+    ///
+    /// - Parameter purge: `true` ise profil klasörü de diskinten silinir.
+    ///   `false` ise veriler korunur (instance yeniden oluşturulduğunda geri gelir).
+    public func remove(name: String, purge: Bool) throws {
+        _ = try store.instance(named: name)
+
+        if purge {
+            let instanceDir = paths.instanceDir(name)
+            if FileManager.default.fileExists(atPath: instanceDir.path) {
+                try FileManager.default.removeItem(at: instanceDir)
+            }
+        }
+
+        try store.remove(named: name)
+    }
+
+    // MARK: - list / status
+
+    /// Tüm instance'ların durumu (ada göre sıralı).
+    public func list() throws -> [InstanceStatus] {
+        let config = try store.load()
+        return config.instances.values
+            .sorted { $0.name < $1.name }
+            .map { status(for: $0) }
+    }
+
+    /// Tek instance'ın durumu.
+    public func status(name: String) throws -> InstanceStatus {
+        let instance = try store.instance(named: name)
+        return status(for: instance)
+    }
+
+    private func status(for instance: Instance) -> InstanceStatus {
+        let profile = paths.profileDir(instance.name)
+        let pid = launcher.runningPid(profileDir: profile)
+        let stateFile = paths.stateFile(instance.name)
+        let state = try? JSONFile.read(InstanceState.self, from: stateFile)
+
+        // Ölü instance'ın bayat durum dosyasını temizle.
+        if state != nil && pid == nil {
+            try? FileManager.default.removeItem(at: stateFile)
+        }
+
+        let cookies = profile.appendingPathComponent("Cookies")
+        return InstanceStatus(
+            name: instance.name,
+            workdir: instance.workdir,
+            isRunning: pid != nil,
+            pid: pid,
+            startedAt: pid == nil ? nil : state?.startedAt,
+            profileSizeBytes: Doctor(paths: paths, appPath: appPath).directorySize(profile),
+            accountSignedIn: FileManager.default.fileExists(atPath: cookies.path)
+        )
+    }
+
+    // MARK: - logs
+
+    /// Instance'ın log satırları (paylaşılan log dosyasından filtrelenir).
+    ///
+    /// Log dosyası tüm instance'lar arasında paylaşıldığı için ayrım yalnızca
+    /// instance'ın başlangıç zamanıyla yapılabilir (kesin ayrım mümkün değil).
+    public func logs(name: String, lines: Int) throws -> [String] {
+        _ = try store.instance(named: name)
+        let state = try JSONFile.read(InstanceState.self, from: paths.stateFile(name))
+        let since = state?.startedAt ?? Date.distantPast
+        return logReader.lines(since: since, pid: nil, limit: lines)
+    }
+
+    // MARK: - open
+
+    /// Instance'ın workdir'ini veya profil klasörünü Finder'da açar.
+    public func open(name: String, target: OpenTarget) throws {
+        let instance = try store.instance(named: name)
+        let path: URL
+        switch target {
+        case .workdir:
+            path = URL(fileURLWithPath: instance.workdir ?? paths.instanceDir(name).path)
+        case .profile:
+            path = paths.profileDir(name)
+        }
+        guard FileManager.default.fileExists(atPath: path.path) else {
+            throw ClaudeCtlError.runtime("klasör bulunamadı: \(path.path)")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = [path.path]
+        do {
+            try process.run()
+        } catch {
+            throw ClaudeCtlError.runtime("açılamadı: \(path.path) — \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - signin
+
+    /// Giriş rehberi: `claude://` handler çakışması riskini raporlar.
+    ///
+    /// `restart` verilirse hedef instance yeniden başlatılır; böylece `claude://`
+    /// handler en son kaydeden instance olur.
+    public func signin(name: String, restart: Bool = false) throws -> SigninPlan {
+        let instance = try store.instance(named: name)
+        let others = try list()
+            .filter { $0.name != name && $0.isRunning }
+            .map(\.name)
+
+        if restart {
+            _ = try stop(name: name)
+            _ = try start(name: name, folder: nil)
+        }
+
+        var instructions = [
+            "1) Hedef instance: \(name)",
+            "2) 'claude://' derin bağlantısı yalnızca tek instance'a gider; diğer instance'ları kapat.",
+            "3) Bu instance'ta 'Sign in' akışını başlat; tarayıcıdan dönüş bu instance'a düşmelidir."
+        ]
+        if !others.isEmpty {
+            instructions.insert(
+                "0) Uyarı: şu instance'lar çalışıyor ve handler'a müdahale edebilir: \(others.joined(separator: ", "))",
+                at: 0
+            )
+        }
+        if restart {
+            instructions.insert("0) Instance yeniden başlatıldı (handler artık bu instance).", at: 0)
+        }
+
+        return SigninPlan(
+            instance: instance.name,
+            handlerInstance: nil,
+            otherInstancesRunning: others,
+            instructions: instructions
+        )
+    }
+
+    // MARK: - doctor
+
+    /// Sağlık kontrolleri (tüm instance'lar veya tek instance).
+    public func doctor(name: String?) throws -> [DoctorCheck] {
+        let doctor = Doctor(paths: paths, appPath: appPath)
+        var checks = doctor.appChecks()
+
+        let config = try store.load()
+        let instances: [Instance]
+        if let name {
+            guard let instance = config.instances[name] else {
+                throw ClaudeCtlError.notFound("instance '\(name)' bulunamadı")
+            }
+            instances = [instance]
+        } else {
+            instances = config.instances.values.sorted { $0.name < $1.name }
+        }
+
+        for instance in instances {
+            let state = try? JSONFile.read(InstanceState.self, from: paths.stateFile(instance.name))
+            checks.append(contentsOf: doctor.checks(for: instance, state: state))
+        }
+        return checks
     }
 }
