@@ -55,4 +55,10 @@ final class ArgumentsTests: XCTestCase {
 
         XCTAssertEqual(args.positionals, ["bir", "iki"])
     }
+
+    func testRepeatedFlagCollectsAllValues() throws {
+        let parsed = try Arguments(["yol", "--folder", "/a", "--folder=/b"], allowed: ["folder"])
+        XCTAssertEqual(parsed.values("folder"), ["/a", "/b"])
+        XCTAssertEqual(parsed.optionalFlag("folder"), "/b")
+    }
 }

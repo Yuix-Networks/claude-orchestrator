@@ -33,6 +33,11 @@ KOMUTLAR
                                  Instance'ı siler (--purge: veriler Çöp Kutusu'na)
   clone <ad> --as <yeni-ad> [--workdir <yol>]
                                  Instance'ı profil + oturumlarıyla klonlar
+  project add <yol> [--name <ad>] [--folder <ek-yol>]... [--replace]
+  project list | remove <ad> [--keep] | sync [--instance <ad>]
+  project import --from <instance|default>
+                                 Tüm instance'larda aynı projeler (Desktop'ta "environment");
+                                 takma ad: env
   session list [--instance <ad>] [--project <yol>] [--running] [--json]
   session show <id> [--instance <ad>] [--json]
   session copy|move <id> --to <instance> [--instance <kaynak>] [--force]
@@ -86,6 +91,8 @@ do {
         try CloneCommand.run(rest)
     case "session":
         try SessionCommand.run(rest)
+    case "project", "env", "environment":
+        try ProjectCommand.run(rest)
     default:
         Output.error("bilinmeyen komut: \(command)", code: ExitCode.usage)
     }

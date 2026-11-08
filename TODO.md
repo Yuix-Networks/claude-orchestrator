@@ -131,6 +131,17 @@ claude-orchestrator session last --from <instance> --to <instance>
       profil + config dizini + oturumlarla birlikte → `clone <ad> --as <yeni>`; kaynak
       çalışırken reddediliyor; APFS klonu (400 MB'lık denemede ek disk ~0)
 
+### 1.7 Ortak projeler (Desktop "environment") `[x]`
+
+- [x] Projeler merkezi kayıtta (`config.json` → `projects`); `project add/list/remove/sync/import`
+      (takma ad `env`). Ortam = `ccd-session-presets.json` → `byAccount[hesap].presets[]`
+- [x] `new` ve her `start` kayıtlı projeleri uygular; giriş öncesi yalnızca güvenli klasör
+- [x] Profildeki tüm hesaplara yazılır; aynı klasörde var olan ortamın ayarlarına dokunulmaz
+- [ ] Canlı doğrulama: girişli bir instance'ta yazılan ortamın Code sekmesinde göründüğü
+      henüz gözle doğrulanmadı (dosya biçimi gerçek profildeki ortamlarla aynı)
+- [ ] Çalışan instance'a anında yansıtma yok (Claude dosyayı bellekte tutuyor; yeniden
+      başlatma gerekiyor)
+
 ---
 
 ## 2. Ertelenen inceleme bulguları `[x]`

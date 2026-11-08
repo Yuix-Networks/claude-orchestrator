@@ -152,6 +152,8 @@ public final class Orchestrator {
         if let workdir, FileManager.default.fileExists(atPath: workdir) {
             _ = try? seeder.seed(profileDir: paths.profileDir(name), workdir: workdir)
         }
+        // Kayıtlı projeler: güvenli klasörler hemen, ortamlar ilk girişten sonra.
+        _ = try? syncProjects(instance: name)
 
         return instance
     }
@@ -204,6 +206,12 @@ public final class Orchestrator {
             } else {
                 warning = "workdir bulunamadı: \(workdir) — tohumlama atlandı"
             }
+        }
+
+        // Kayıtlı projeler her başlatmada uygulanır: giriş sonrası hesap
+        // öğrenilince ortamlar yazılır, Claude'un ezdiği değişiklikler geri gelir.
+        if let failure = (try? syncProjects(instance: name))?.first?.error {
+            warning = [warning, "proje senkronu başarısız: \(failure)"].compactMap { $0 }.joined(separator: "; ")
         }
 
         let request = LaunchRequest(

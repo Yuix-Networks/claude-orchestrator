@@ -14,11 +14,13 @@ public struct Arguments {
 
     /// Değer alan bayraklar (sonraki argümanı tüketir); diğerleri boolean'dır.
     public static let valueTakingFlags: Set<String> = [
-        "workdir", "folder", "target", "lines", "instance", "project", "to", "from", "as", "sessions-from"
+        "workdir", "folder", "target", "lines", "instance", "project", "to", "from", "as", "sessions-from", "name"
     ]
 
     public private(set) var positionals: [String] = []
     public private(set) var flags: [String: String] = [:]
+    /// Tekrarlanan bayrakların tüm değerleri (`--folder a --folder b`).
+    public private(set) var multiFlags: [String: [String]] = [:]
     public private(set) var booleans: Set<String> = []
 
     /// - Parameter allowed: Bu komutun kabul ettiği bayrak adları.
@@ -38,10 +40,10 @@ public struct Arguments {
                 try validate(name: name, allowed: allowed)
 
                 if let inlineValue {
-                    flags[name] = inlineValue
+                    setFlag(name, inlineValue)
                 } else if Arguments.valueTakingFlags.contains(name),
                           index + 1 < args.count, !args[index + 1].hasPrefix("-") {
-                    flags[name] = args[index + 1]
+                    setFlag(name, args[index + 1])
                     index += 1
                 } else {
                     booleans.insert(name)
@@ -55,7 +57,7 @@ public struct Arguments {
 
                 if Arguments.valueTakingFlags.contains(long),
                    index + 1 < args.count, !args[index + 1].hasPrefix("-") {
-                    flags[long] = args[index + 1]
+                    setFlag(long, args[index + 1])
                     index += 1
                 } else {
                     booleans.insert(long)
@@ -65,6 +67,16 @@ public struct Arguments {
             }
             index += 1
         }
+    }
+
+    private mutating func setFlag(_ name: String, _ value: String) {
+        flags[name] = value
+        multiFlags[name, default: []].append(value)
+    }
+
+    /// Bayrağın verilen tüm değerleri (sırayla).
+    public func values(_ name: String) -> [String] {
+        multiFlags[name] ?? []
     }
 
     private func validate(name: String, allowed: Set<String>) throws {

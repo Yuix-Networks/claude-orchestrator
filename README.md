@@ -31,6 +31,9 @@ claude-orchestrator signin work --exclusive     # sign in, one instance at a tim
 claude-orchestrator signin school --exclusive
 claude-orchestrator signin client --exclusive
 
+claude-orchestrator project import --from default   # reuse the projects you already have
+claude-orchestrator project add ~/workspace/api       # or add new ones: every instance gets them
+
 claude-orchestrator start work && claude-orchestrator start school && claude-orchestrator start client
 claude-orchestrator agent --install             # menu bar icons to start/stop/switch
 ```
@@ -98,6 +101,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 | `claude-orchestrator signin <name> [--restart] [--exclusive]` | Sign-in guide; `--exclusive` closes the other instances while you sign in |
 | `claude-orchestrator doctor [<name>] [--json]` | Health checks: app version, profile, lock, disk, workdir, session |
 | `claude-orchestrator clone <name> --as <new> [--workdir <path>]` | Copy an instance with its profile, config and sessions |
+| `claude-orchestrator project …` (alias `env`) | Projects shared by every instance — Claude Desktop calls them environments (see below) |
 | `claude-orchestrator session …` | List, inspect, copy and move Claude Code sessions (see below) |
 | `claude-orchestrator remove <name> [--purge [--permanent]] [--yes]` | Delete the instance; `--purge` moves its data to the Trash (asks first) |
 | `claude-orchestrator agent [--install\|--uninstall]` | Menu bar icons (one per instance), installable as a login item |
@@ -106,6 +110,33 @@ Every `--json` output carries a `schemaVersion` field (currently `1`). It is bum
 when a field is removed or renamed.
 
 Exit codes: `0` success, `1` runtime error, `2` usage error.
+
+## Projects (environments) in every instance
+
+Claude Desktop keeps the Code tab's environments per profile and per account. Without
+help, you'd create every project again in each instance. `project` keeps one list and
+writes it into all of them:
+
+```bash
+claude-orchestrator project add ~/workspace/api                       # name = folder name
+claude-orchestrator project add ~/workspace/site --name "Site" --folder ~/workspace/shared
+claude-orchestrator project import --from default    # take over the regular Claude's environments
+claude-orchestrator project list                     # ✓ synced  ✗ missing  … waiting for sign-in
+claude-orchestrator project sync                     # re-apply to every instance
+claude-orchestrator project remove "Site"            # also removes it from the instances (--keep: don't)
+```
+
+- The list lives in `config.json`. New instances get it automatically, and every
+  `start` applies it again.
+- An environment belongs to an account, so before the first sign-in only the folder is
+  trusted. The environment itself is written on the first `start` after you sign in.
+  In a profile that has seen several accounts, every account gets the project.
+- An environment that already exists for the same folder is left alone, including its
+  name, model and other settings.
+- A running instance sees changes after a restart. If Claude overwrites the file
+  meanwhile, the next `start` writes the changes again.
+- `project remove` keeps a folder trusted if another project or the instance's workdir
+  still uses it.
 
 ## Sessions
 
