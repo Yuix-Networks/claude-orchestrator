@@ -3,7 +3,7 @@ class ClaudeOrchestrator < Formula
   homepage "https://github.com/Yuix-Networks/claude-orchestrator"
   url "https://github.com/Yuix-Networks/claude-orchestrator/releases/download/v0.2.5/claude-orchestrator-0.2.5.tar.gz"
   version "0.2.5"
-  sha256 "c18c7f37601ebd23d9d6024e72b75ca6ace2d90c0a74b62f729bc0b898defe7b"
+  sha256 "527fec124b2f087ffec4c8232c815e20b6dd41769f7bc3b12aedb09fc9f86c9e"
   license "MIT"
 
   depends_on macos: :ventura
