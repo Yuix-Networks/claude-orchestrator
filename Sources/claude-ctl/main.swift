@@ -39,7 +39,8 @@ do {
     }
 } catch let error as ClaudeCtlError {
     switch error {
-    case let .usage(message):
+    case let .usage(message), let .invalidName(message):
+        // Kullanıcı hatalı argüman verdi — kullanım hatası (exit 2).
         Output.error(message, code: ExitCode.usage)
     default:
         Output.error(error.description, code: ExitCode.runtime)

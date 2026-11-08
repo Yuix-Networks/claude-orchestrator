@@ -367,7 +367,7 @@ Scripts/smoke.sh          # canlı E2E doğrulama betiği
   `NewCommand`: `--workdir <yol>` zorunlu; `--workdir` yoksa `Output.error("new: --workdir zorunlu", .usage)`.
   `StartCommand`: `--folder <yol>` opsiyonel.
   `StopCommand`: isim zorunlu.
-  Tüm komutlar: `ClaudeCtlError.usage` → exit 2, diğer hatalar → exit 1, hata mesajı stderr'e `hata: <mesaj>` olarak.
+  Tüm komutlar: `ClaudeCtlError.usage` ve `.invalidName` → exit 2 (kullanım hatası), diğer hatalar → exit 1, hata mesajı stderr'e `hata: <mesaj>` olarak.
 
 - [ ] **Step 5: Testleri koş, hepsinin geçtiğini gör**
 
@@ -643,7 +643,7 @@ Scripts/smoke.sh          # canlı E2E doğrulama betiği
 - [ ] **Step 1: `Scripts/smoke.sh` yaz**
 
   Bash, `set -euo pipefail`. Adımlar:
-  1. `BIN` = `build/release/claude-ctl` (yoksa `swift build -c release` ile üret).
+  1. `BIN` = `.build/release/claude-ctl` (yoksa `swift build -c release` ile üret).
   2. `WORK=$(mktemp -d)`; `SMOKE_NAME="smoke-$$"`.
   3. `$BIN new "$SMOKE_NAME" --workdir "$WORK"` → exit 0.
   4. `$BIN start "$SMOKE_NAME"` → exit 0; 10 sn bekle.

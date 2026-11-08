@@ -125,6 +125,10 @@ Before starting, the instance profile is seeded so the Code tab opens in the rig
 - **The application menu still says "Claude"** (the name is compiled into the app).
 - **Log files are shared.** Claude writes to `~/Library/Logs/Claude/`; `claude-ctl logs`
   filters by the instance's start time, so the separation is approximate.
+- **The session preset needs an account.** The workdir is seeded as a *trusted folder*
+  immediately, but the "session preset" (the entry the Code tab opens with) is written
+  only once the instance knows your Anthropic account — that is, after the first sign-in.
+  Run `claude-ctl signin <name> --restart` (or restart the instance once) afterwards.
 - **One `claude://` handler.** The OAuth deep link is delivered to a single instance;
   close the others while signing in (or use `claude-ctl signin <name> --restart`).
 - **Disk usage.** Each instance keeps its own Claude Code CLI download (~500 MB) plus
