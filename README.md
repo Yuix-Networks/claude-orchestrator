@@ -143,7 +143,8 @@ menu:
 - A profile's menu offers **Start** (or **Stop** / **Restart** when it is running),
   **Log in** (the `signin --exclusive` flow: other running instances are closed while
   you log in, after a confirmation) and **Move a session…** (the interactive move,
-  limited to that profile's sessions). Esc goes back.
+  limited to that profile's sessions). Esc goes back. A profile that is not logged in
+  offers only **Log in**; the other actions appear once it is.
 - **+ New profile** at the bottom asks for a name and opens the new profile's menu, so
   you can start it or log in right away.
 

@@ -149,7 +149,11 @@ enum HomeInteractive {
     private static func profileMenu(_ name: String, ctl: Orchestrator, ui: TerminalUI, message: inout Message?) -> Exit? {
         while true {
             guard let status = try? ctl.status(name: name) else { return nil }
-            let actions: [Action] = (status.isRunning ? [.stop, .restart] : [.start]) + [.logIn, .moveSession, .back]
+            // Giriş yapılmamış profilde yapılabilecek tek anlamlı şey giriş
+            // (başlatmayı da giriş akışı yapar); diğer eylemler girişten sonra çıkar.
+            let actions: [Action] = status.accountSignedIn
+                ? (status.isRunning ? [.stop, .restart] : [.start]) + [.logIn, .moveSession, .back]
+                : [.logIn]
             var picker = PickerModel(items: actions.map(\.rawValue), searchable: false)
 
             var chosen: Action?
