@@ -8,6 +8,7 @@ enum HomeInteractive {
         let ctl = Orchestrator()
         var message: Message?
         var focus: String?
+        var openProjects = false
 
         while true {
             guard let ui = TerminalUI() else {
@@ -15,7 +16,13 @@ enum HomeInteractive {
             }
             // Ekranlar terminal kipini bırakması gereken bir eylemle döner
             // (giriş, oturum taşıma); o eylem ana ekranda çalışır.
-            let next = home(ctl: ctl, ui: ui, message: &message, focus: &focus)
+            let next: Exit
+            if openProjects, let exit = ProjectsInteractive.run(ctl: ctl, ui: ui) {
+                next = exit
+            } else {
+                next = home(ctl: ctl, ui: ui, message: &message, focus: &focus)
+            }
+            openProjects = false
             ui.restore()
 
             switch next {
@@ -24,29 +31,36 @@ enum HomeInteractive {
             case let .signIn(name):
                 runOutside { try SigninCommand.run([name, "--exclusive"]) }
                 focus = name
-            case let .moveSession(name):
+            case let .transfer(located, target, move):
                 runOutside {
-                    try SessionMoveInteractive.run(id: nil, from: name, to: nil, assumeYes: false)
+                    let outcome = try ctl.transferSessionRestarting(located, to: target, move: move) { Output.line($0) }
+                    SessionMoveInteractive.report(outcome, located: located, target: target, move: move)
                 }
-                focus = name
+                focus = located.endpoint.name
+            case let .outside(action, reopenProjects):
+                runOutside(action)
+                openProjects = reopenProjects
             }
             message = nil
         }
     }
 
-    private enum Exit {
+    enum Exit {
         case quit
+        /// Terminal kipinde çalışacak eylem; sonra Projects ekranına dönülsün mü?
+        case outside(() throws -> Void, reopenProjects: Bool)
         case signIn(String)
-        case moveSession(String)
+        /// Oturum, hedef, taşıma mı (değilse kopya).
+        case transfer(LocatedSession, String, Bool)
     }
 
-    private struct Message {
+    struct Message {
         var text: String
         var isError: Bool
     }
 
     /// Terminal kipinde çalışan bir eylem; bitince Enter beklenir.
-    private static func runOutside(_ action: () throws -> Void) {
+    static func runOutside(_ action: () throws -> Void) {
         do {
             try action()
         } catch {
@@ -62,7 +76,8 @@ enum HomeInteractive {
         while true {
             let profiles = (try? ctl.list(includeSizes: false)) ?? []
             let newRow = profiles.count
-            var picker = PickerModel(items: profiles.map(\.name) + ["New profile"], searchable: false)
+            let projectsRow = newRow + 1
+            var picker = PickerModel(items: profiles.map(\.name) + ["New profile", "Projects"], searchable: false)
             if let focus, let row = profiles.firstIndex(where: { $0.name == focus }) {
                 for _ in 0..<row { _ = picker.handle(.down) }
             }
@@ -80,6 +95,11 @@ enum HomeInteractive {
                 message = nil
             }
             guard let index = chosen else { continue }
+
+            if index == projectsRow {
+                if let exit = ProjectsInteractive.run(ctl: ctl, ui: ui) { return exit }
+                continue
+            }
 
             if index == newRow {
                 if let created = newProfile(ctl: ctl, ui: ui) {
@@ -127,6 +147,7 @@ enum HomeInteractive {
         lines.append(rule)
         let newSelected = picker.selection == newRow
         lines.append((newSelected ? Style.inverse + "❯ " : "  ") + "+ New profile" + Style.reset)
+        lines.append((picker.selection == newRow + 1 ? Style.inverse + "❯ " : "  ") + "Projects…" + Style.reset)
         if let message {
             lines.append("")
             lines.append((message.isError ? Style.warning : Style.dim) + message.text + Style.reset)
@@ -143,7 +164,7 @@ enum HomeInteractive {
         case logIn = "Log in"
         /// Giriş yapılmış profilde: oturum düşmüşse ya da hesap değişecekse.
         case logInAgain = "Log in again…"
-        case moveSession = "Move a session…"
+        case sessions = "Sessions…"
         case back = "Back"
     }
 
@@ -154,7 +175,7 @@ enum HomeInteractive {
             // Giriş yapılmamış profilde yapılabilecek tek anlamlı şey giriş
             // (başlatmayı da giriş akışı yapar); diğer eylemler girişten sonra çıkar.
             let actions: [Action] = status.accountSignedIn
-                ? (status.isRunning ? [.stop, .restart] : [.start]) + [.moveSession, .logInAgain, .back]
+                ? (status.isRunning ? [.stop, .restart] : [.start]) + [.sessions, .logInAgain, .back]
                 : [.logIn]
             var picker = PickerModel(items: actions.map(\.rawValue), searchable: false)
 
@@ -205,10 +226,118 @@ enum HomeInteractive {
                 case true: return .signIn(name)
                 case false: continue
                 }
-            case .moveSession:
-                return .moveSession(name)
+            case .sessions:
+                if let exit = sessionsScreen(name, ctl: ctl, ui: ui, message: &message) { return exit }
             }
         }
+    }
+
+    // MARK: - Oturumlar
+
+    /// Profilin oturumları: ara → seç → kopyala / taşı.
+    private static func sessionsScreen(_ name: String, ctl: Orchestrator, ui: TerminalUI, message: inout Message?) -> Exit? {
+        let sessions = (try? ctl.sessions(instance: name)) ?? []
+        guard !sessions.isEmpty else {
+            message = Message(text: "\(display(name)) has no sessions yet.", isError: false)
+            return nil
+        }
+        var picker = PickerModel(items: sessions.map(SessionMoveInteractive.searchText))
+        while true {
+            let render: (PickerModel) -> (lines: [String], cursor: (Int, Int)?) = {
+                SessionMoveInteractive.sessionScreen(
+                    $0, sessions, ui, heading: "\(display(name)) · sessions", escapeHint: "Esc to go back"
+                )
+            }
+            guard let index = SessionMoveInteractive.pick(&picker, ui: ui, render: render) else { return nil }
+            if let exit = sessionMenu(sessions[index], ctl: ctl, ui: ui) { return exit }
+        }
+    }
+
+    private enum SessionAction: String {
+        case copy = "Copy to…"
+        case move = "Move to…"
+        case back = "Back"
+    }
+
+    /// Oturum ayrıntısı + eylemler. `nil` → oturum listesine dön.
+    private static func sessionMenu(_ located: LocatedSession, ctl: Orchestrator, ui: TerminalUI) -> Exit? {
+        let actions: [SessionAction] = [.copy, .move, .back]
+        var picker = PickerModel(items: actions.map(\.rawValue), searchable: false)
+        var notice: Message?
+        while true {
+            ui.draw(sessionLines(located, actions: actions, picker: picker, notice: notice))
+            let index: Int
+            switch picker.handle(ui.readKey()) {
+            case let .select(selected): index = selected
+            case .back, .cancel: return nil
+            case .none: continue
+            }
+            notice = nil
+            let action = actions[index]
+            if action == .back { return nil }
+            let move = action == .move
+
+            let instances = (try? ctl.instanceEndpoints()) ?? []
+            let candidates = instances.filter { $0.name != located.endpoint.name }
+            guard !candidates.isEmpty else {
+                notice = Message(text: "There is no other account to \(move ? "move" : "copy") this session to.", isError: true)
+                continue
+            }
+            var target: String?
+            if candidates.count == 1 {
+                target = candidates[0].name
+            } else {
+                var targets = PickerModel(items: candidates.map(\.name), searchable: false)
+                if case let .select(row) = SessionMoveInteractive.pickTarget(
+                    &targets, located: located, candidates: candidates, move: move, ui: ui
+                ) {
+                    target = candidates[row].name
+                }
+            }
+            guard let target else { continue }
+            if let blocker = SessionMoveInteractive.selfStopBlocker(
+                located: located, target: target, move: move, instances: instances
+            ) {
+                notice = Message(text: blocker, isError: true)
+                continue
+            }
+            if SessionMoveInteractive.confirm(located: located, target: target, move: move, instances: instances, ui: ui) == true {
+                return .transfer(located, target, move)
+            }
+        }
+    }
+
+    private static func sessionLines(
+        _ located: LocatedSession,
+        actions: [SessionAction],
+        picker: PickerModel,
+        notice: Message?
+    ) -> [String] {
+        let session = located.session
+        func row(_ label: String, _ value: String) -> String {
+            Style.dim + label.fitted(14) + Style.reset + value
+        }
+        var lines = [
+            Style.bold + SessionMoveInteractive.title(session) + Style.reset,
+            Style.dim + "↑/↓ to choose, Enter to run, Esc to go back" + Style.reset,
+            "",
+            row("Account", display(located.endpoint.name) + (located.endpoint.isRunning ? "  ● running" : "")),
+            row("Project", session.cwd.map { SessionCommand.shortPath($0, width: 60) } ?? session.projectSlug),
+            row("Started", session.startedAt.map(SessionMoveInteractive.relativeDate) ?? "-"),
+            row("Last active", SessionMoveInteractive.relativeDate(session.lastActivity)),
+            row("Messages", "\(session.messageCount)"),
+            row("Size", ByteCountFormatter.string(fromByteCount: session.sizeBytes, countStyle: .file)),
+            row("Id", session.id),
+            ""
+        ]
+        for (index, action) in actions.enumerated() {
+            lines.append((picker.selection == index ? Style.inverse + "❯ " : "  ") + action.rawValue + Style.reset)
+        }
+        if let notice {
+            lines.append("")
+            lines.append((notice.isError ? Style.warning : Style.dim) + notice.text + Style.reset)
+        }
+        return lines
     }
 
     private static func menuLines(_ status: InstanceStatus, actions: [Action], picker: PickerModel, message: Message?) -> [String] {
@@ -271,43 +400,61 @@ enum HomeInteractive {
 
     /// Oluşturulan profilin adı; vazgeçilirse `nil`.
     private static func newProfile(ctl: Orchestrator, ui: TerminalUI) -> String? {
-        var name = ""
+        textInput(
+            ui: ui,
+            title: "New profile",
+            hint: "Lowercase letters, digits and hyphens. Enter to create, Esc to cancel.",
+            label: "Name: "
+        ) { name in
+            guard !name.isEmpty else { return "Enter a name." }
+            do {
+                _ = try ctl.new(name: name, workdir: nil)
+                return nil
+            } catch {
+                return "\(error)"
+            }
+        }
+    }
+
+    /// Tek satırlık metin girişi. `submit` hata metni döndürürse ekranda
+    /// kalınır; `nil` döndürürse girilen değer döner. Esc → `nil`.
+    static func textInput(
+        ui: TerminalUI,
+        title: String,
+        hint: String,
+        label: String,
+        initial: String = "",
+        context: [String] = [],
+        submit: (String) -> String?
+    ) -> String? {
+        var text = initial
         var problem: String?
-        let prompt = "Name: "
         while true {
-            var lines = [
-                Style.bold + "New profile" + Style.reset,
-                Style.dim + "Lowercase letters, digits and hyphens. Enter to create, Esc to cancel." + Style.reset,
-                "",
-                prompt + name
-            ]
+            var lines = [Style.bold + title + Style.reset, Style.dim + hint + Style.reset, ""] + context
+            if !context.isEmpty { lines.append("") }
+            let inputRow = lines.count
+            lines.append(label + text)
             if let problem {
                 lines.append("")
                 lines.append(Style.warning + problem + Style.reset)
             }
-            ui.draw(lines, cursor: (row: 3, column: prompt.count + name.count))
+            ui.draw(lines, cursor: (row: inputRow, column: label.count + text.count))
 
             switch ui.readKey() {
             case let .character(character):
-                name.append(character)
+                text.append(character)
                 problem = nil
             case .backspace:
-                if !name.isEmpty { name.removeLast() }
+                if !text.isEmpty { text.removeLast() }
                 problem = nil
             case .clearQuery:
-                name = ""
+                text = ""
             case .enter:
-                let trimmed = name.trimmingCharacters(in: .whitespaces)
-                guard !trimmed.isEmpty else {
-                    problem = "Enter a name."
-                    continue
-                }
-                do {
-                    _ = try ctl.new(name: trimmed, workdir: nil)
+                let trimmed = text.trimmingCharacters(in: .whitespaces)
+                if let error = submit(trimmed) {
+                    problem = error
+                } else {
                     return trimmed
-                } catch {
-                    problem = "\(error)"
-                    continue
                 }
             case .escape, .interrupt:
                 return nil
@@ -322,7 +469,7 @@ enum HomeInteractive {
     /// Bu terminal, kapatılacak instance'lardan birinin içinde mi çalışıyor?
     /// (Code sekmesi terminali, Claude Code aracı.) Öyleyse kapanış bu komutu
     /// da sonlandırır.
-    private static func hostBlocker(ctl: Orchestrator, stopping names: [String]) -> String? {
+    static func hostBlocker(ctl: Orchestrator, stopping names: [String]) -> String? {
         guard let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] else { return nil }
         let current = URL(fileURLWithPath: configDir).standardizedFileURL.path
         for name in names {
@@ -334,5 +481,5 @@ enum HomeInteractive {
         return nil
     }
 
-    private static func display(_ name: String) -> String { SessionMoveInteractive.display(name) }
+    static func display(_ name: String) -> String { SessionMoveInteractive.display(name) }
 }

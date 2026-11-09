@@ -83,14 +83,27 @@ extension Orchestrator {
         to targetName: String,
         progress: @escaping (String) -> Void = { _ in }
     ) throws -> SessionMovePlan.Outcome {
+        try transferSessionRestarting(located, to: targetName, move: true, progress: progress)
+    }
+
+    /// Oturumu kopyalar ya da taşır. Yazılan instance'lar (kopyada yalnızca
+    /// hedef, taşımada kaynak + hedef) çalışıyorsa sırayla kapatılır, aktarımdan
+    /// sonra yeniden açılır.
+    public func transferSessionRestarting(
+        _ located: LocatedSession,
+        to targetName: String,
+        move: Bool,
+        progress: @escaping (String) -> Void = { _ in }
+    ) throws -> SessionMovePlan.Outcome {
         let target = try endpoint(targetName)
-        for endpoint in [located.endpoint, target] where endpoint.isDefault && endpoint.isRunning {
+        let touched = move ? [located.endpoint, target] : [target]
+        for endpoint in touched where endpoint.isDefault && endpoint.isRunning {
             throw OrchestratorError.runtime(
                 "varsayılan Claude (instance dışı) çalışıyor — önce kendin kapat"
             )
         }
         let plan = SessionMovePlan(
-            instances: [located.endpoint.name, target.name].filter { $0 != SessionEndpoint.defaultName },
+            instances: touched.map(\.name).filter { $0 != SessionEndpoint.defaultName },
             isRunning: { [self] name in (try? endpoint(name).isRunning) ?? false },
             stop: { [self] name in
                 _ = try stop(name: name)
@@ -102,9 +115,9 @@ extension Orchestrator {
             transfer: { [self] in
                 // Uç noktalar durdurmadan sonra yeniden okunur (isRunning güncel olsun).
                 let fresh = LocatedSession(endpoint: try endpoint(located.endpoint.name), session: located.session)
-                return try transfer(fresh, to: targetName, move: true)
+                return try transfer(fresh, to: targetName, move: move)
             },
-            progress: progress
+            progress: { progress(move ? $0 : $0.replacingOccurrences(of: "Moving", with: "Copying")) }
         )
         return try plan.run()
     }

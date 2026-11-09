@@ -141,13 +141,26 @@ menu:
 - The list shows every profile as **running** or **stopped**, and flags the ones that
   are not logged in. Move with ↑/↓, open one with Enter, quit with `q`.
 - A profile's menu offers **Start** (or **Stop** / **Restart** when it is running),
-  **Move a session…** (the interactive move, limited to that profile's sessions) and
-  **Log in again…**, for when the login has expired or the profile should use another
-  account. Esc goes back. A profile that is not logged in offers only **Log in**; the
-  other actions appear once it is. Both login entries run the `signin --exclusive` flow:
-  after a confirmation, other running instances are closed while you log in.
-- **+ New profile** at the bottom asks for a name and opens the new profile's menu, so
-  you can start it or log in right away.
+  **Sessions…** and **Log in again…**, for when the login has expired or the profile
+  should use another account. A profile that is not logged in offers only **Log in**;
+  the other actions appear once it is. Both login entries run the `signin --exclusive`
+  flow: after a confirmation, other running instances are closed while you log in.
+- **Sessions…** lists the profile's sessions with the same fuzzy search as the
+  interactive move. Picking one shows its details and offers **Copy to…** and
+  **Move to…**: choose the account (skipped when there is only one), confirm, and the
+  instances that have to be closed are shut down and reopened afterwards. A copy only
+  closes the target; the source keeps its session.
+- **+ New profile** asks for a name and opens the new profile's menu, so you can log in
+  right away.
+- **Projects…** lists the registered projects with their state in every profile
+  (✓ in sync, ✗ missing, … waiting for the first login) and lets you add one (folder,
+  then name), remove one, **apply a `projects.json`** (with a preview of what is added,
+  changed, renamed or left out, and a separate choice to remove projects that are not in
+  the file), export the list to a file, sync all profiles, or import the environments a
+  profile already has. These run the same code as the `project` subcommands, so their
+  reports are the same (in Turkish, like the rest of the CLI).
+
+Esc goes back a screen everywhere.
 
 Like the interactive move, it refuses to stop an instance when it is itself running
 inside that instance (a Code tab terminal).

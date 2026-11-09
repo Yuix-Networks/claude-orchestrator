@@ -35,7 +35,7 @@ enum SessionMoveInteractive {
         flow: while true {
             switch screen {
             case .sessions:
-                guard let index = pick(&sessionPicker, ui: ui, render: { sessionScreen($0, sessions, ui) }) else {
+                guard let index = pick(&sessionPicker, ui: ui, render: { sessionScreen($0, sessions, ui, heading: "Move a session") }) else {
                     ui.restore()
                     throw OrchestratorError.runtime("cancelled — nothing was changed")
                 }
@@ -62,7 +62,7 @@ enum SessionMoveInteractive {
                     screen = .confirm
                 } else {
                     var picker = PickerModel(items: candidates.map(\.name), searchable: false)
-                    switch pickTarget(&picker, located: located, candidates: candidates, ui: ui) {
+                    switch pickTarget(&picker, located: located, candidates: candidates, move: true, ui: ui) {
                     case let .select(index):
                         target = candidates[index].name
                         screen = .confirm
@@ -76,12 +76,12 @@ enum SessionMoveInteractive {
 
             case .confirm:
                 guard let located = chosen, let targetName = target else { screen = .sessions; continue }
-                if let blocker = selfStopBlocker(located: located, target: targetName, instances: instances) {
+                if let blocker = selfStopBlocker(located: located, target: targetName, move: true, instances: instances) {
                     ui.restore()
                     throw OrchestratorError.runtime(blocker)
                 }
                 if assumeYes { break flow }
-                switch confirm(located: located, target: targetName, instances: instances, ui: ui) {
+                switch confirm(located: located, target: targetName, move: true, instances: instances, ui: ui) {
                 case true: break flow
                 case false:
                     ui.restore()
@@ -105,14 +105,17 @@ enum SessionMoveInteractive {
 
         guard let located = chosen, let targetName = target else { return }
         let outcome = try ctl.moveSessionRestarting(located, to: targetName) { Output.line($0) }
+        report(outcome, located: located, target: targetName, move: true)
+    }
 
+    static func report(_ outcome: SessionMovePlan.Outcome, located: LocatedSession, target: String, move: Bool) {
         for warning in outcome.result.warnings { Output.line("warning: \(warning)") }
-        Output.line("Moved \"\(title(located.session))\" from \(display(located.endpoint.name)) to \(display(targetName)).")
+        Output.line("\(move ? "Moved" : "Copied") \"\(title(located.session))\" from \(display(located.endpoint.name)) to \(display(target)).")
         if let backup = outcome.result.backup {
             Output.line("  Backup of the original: \(backup.path)")
         }
         if outcome.result.desktopMetadata != nil {
-            Output.line("  It now appears in \(display(targetName))'s Code tab.")
+            Output.line("  It now appears in \(display(target))'s Code tab.")
         }
         for failure in outcome.restartFailures {
             Output.line("warning: could not restart \(failure.name): \(failure.error)")
@@ -123,14 +126,14 @@ enum SessionMoveInteractive {
 
     // MARK: - Ekran 1: oturumlar
 
-    private static func searchText(_ located: LocatedSession) -> String {
+    static func searchText(_ located: LocatedSession) -> String {
         let session = located.session
         let project = session.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } ?? ""
         return "\(title(session)) \(located.endpoint.name) \(project)"
     }
 
     /// Seçilen indeks; iptalde `nil`.
-    private static func pick(
+    static func pick(
         _ picker: inout PickerModel,
         ui: TerminalUI,
         render: (PickerModel) -> (lines: [String], cursor: (Int, Int)?)
@@ -147,16 +150,18 @@ enum SessionMoveInteractive {
         }
     }
 
-    private static func sessionScreen(
+    static func sessionScreen(
         _ picker: PickerModel,
         _ sessions: [LocatedSession],
-        _ ui: TerminalUI
+        _ ui: TerminalUI,
+        heading: String,
+        escapeHint: String = "Esc to quit"
     ) -> (lines: [String], cursor: (Int, Int)?) {
         let (rows, columns) = ui.size
         let prompt = "Search: "
         var lines = [
-            Style.bold + "Move a session" + Style.reset + Style.dim
-                + "  — type to filter, ↑/↓ to choose, Enter to select, Esc to quit" + Style.reset,
+            Style.bold + heading + Style.reset + Style.dim
+                + "  — type to filter, ↑/↓ to choose, Enter to select, \(escapeHint)" + Style.reset,
             prompt + picker.query,
             Style.dim + String(repeating: "─", count: max(0, columns - 1)) + Style.reset
         ]
@@ -194,15 +199,16 @@ enum SessionMoveInteractive {
 
     // MARK: - Ekran 2: hedef hesap
 
-    private static func pickTarget(
+    static func pickTarget(
         _ picker: inout PickerModel,
         located: LocatedSession,
         candidates: [SessionEndpoint],
+        move: Bool,
         ui: TerminalUI
     ) -> PickerAction {
         while true {
             var lines = [
-                Style.bold + "Move \"\(title(located.session))\"" + Style.reset,
+                Style.bold + "\(move ? "Move" : "Copy") \"\(title(located.session))\"" + Style.reset,
                 Style.dim + "From \(display(located.endpoint.name)) to which account?"
                     + "  ↑/↓ to choose, Enter to select, Esc to go back" + Style.reset,
                 ""
@@ -224,14 +230,15 @@ enum SessionMoveInteractive {
     // MARK: - Ekran 3: onay
 
     /// `true` onay, `false` iptal, `nil` geri.
-    private static func confirm(
+    static func confirm(
         located: LocatedSession,
         target: String,
+        move: Bool,
         instances: [SessionEndpoint],
         ui: TerminalUI
     ) -> Bool? {
         let source = located.endpoint.name
-        let affected = [source, target]
+        let affected = move ? [source, target] : [target]
         let running = affected.filter { name in instances.first { $0.name == name }?.isRunning == true }
         let width = min(ui.size.columns - 2, 78)
 
@@ -240,20 +247,25 @@ enum SessionMoveInteractive {
         if let cwd = located.session.cwd { body += " · \(SessionCommand.shortPath(cwd, width: 40))" }
         body += "\n\n"
         if running.isEmpty {
-            body += "Neither instance is running, so the session will be moved right away."
+            body += move
+                ? "Neither instance is running, so the session will be moved right away."
+                : "\(display(target)) is not running, so the session will be copied right away."
         } else {
             let names = running.map { display($0) }
             let subject = running.count == 1
                 ? "the Claude instance signed in to the \(names[0]) account will be shut down"
                 : "the Claude instances signed in to the \(names[0]) and \(names[1]) accounts will be shut down one after the other"
-            body += "To move the session safely, \(subject), and the session will then be moved. "
+            let verb = move ? "move" : "copy"
+            body += "To \(verb) the session safely, \(subject), and the session will then be \(verb == "move" ? "moved" : "copied"). "
                 + (running.count == 1 ? "It will be reopened" : "Both will be reopened")
                 + " once the move is complete."
             body += "\n\nAny unsent messages or work in progress in those windows may be lost."
         }
-        body += "\n\nThe original copy is kept as a backup and can be restored."
+        body += move
+            ? "\n\nThe original copy is kept as a backup and can be restored."
+            : "\n\n\(display(source)) keeps its copy of the session."
 
-        let lines = [Style.bold + "Confirm session move" + Style.reset, ""]
+        let lines = [Style.bold + "Confirm session \(move ? "move" : "copy")" + Style.reset, ""]
             + body.wrapped(width)
             + ["", Style.bold + "Do you want to proceed? [y/N]" + Style.reset
                 + Style.dim + "  (Esc to go back)" + Style.reset]
@@ -271,13 +283,14 @@ enum SessionMoveInteractive {
     /// Bu komut, kapatılacak bir instance'ın içinden (Code sekmesi terminali,
     /// Claude Code aracı) çalışıyorsa kapanış komutu da sonlandırır; taşıma
     /// yarıda kalır ve instance'lar yeniden açılmaz.
-    private static func selfStopBlocker(located: LocatedSession, target: String, instances: [SessionEndpoint]) -> String? {
+    static func selfStopBlocker(located: LocatedSession, target: String, move: Bool, instances: [SessionEndpoint]) -> String? {
         guard let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] else { return nil }
         let current = URL(fileURLWithPath: configDir).standardizedFileURL.path
-        let affected = instances.filter { [located.endpoint.name, target].contains($0.name) && $0.isRunning }
+        let names = move ? [located.endpoint.name, target] : [target]
+        let affected = instances.filter { names.contains($0.name) && $0.isRunning }
         guard let owner = affected.first(where: { $0.codeDir.standardizedFileURL.path == current }) else { return nil }
         return "this terminal is running inside the \(display(owner.name)) Claude instance, which has to be shut down "
-            + "for the move — run the command from a regular terminal (Terminal, iTerm) instead"
+            + "for the \(move ? "move" : "copy") — run the command from a regular terminal (Terminal, iTerm) instead"
     }
 
     // MARK: - Biçimlendirme
@@ -292,7 +305,7 @@ enum SessionMoveInteractive {
         name.prefix(1).uppercased() + name.dropFirst()
     }
 
-    private static func relativeDate(_ date: Date) -> String {
+    static func relativeDate(_ date: Date) -> String {
         guard date != .distantPast else { return "-" }
         let calendar = Calendar.current
         let time = DateFormatter()
