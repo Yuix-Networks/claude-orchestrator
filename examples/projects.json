@@ -1,0 +1,36 @@
+// Example projects.json for claude-orchestrator.
+//
+// Copy it to ~/.config/claude-orchestrator/projects.json, change the paths to your
+// own folders, then apply it from the menu (claude-orchestrator → Projects… →
+// Apply a projects.json…) or with: claude-orchestrator project apply
+//
+// Every project appears as an environment in the Code tab of every profile.
+// Comments and trailing commas are allowed. Every folder must exist.
+{
+  // Optional: applied to every project below.
+  "defaults": {
+    // Extra folders every session should see (for example a shared docs repo).
+    "folders": ["~/workspace/team-docs"],
+    // Default permission mode for sessions in these folders:
+    // default, acceptEdits, plan, auto or bypassPermissions.
+    "permissionMode": "acceptEdits",
+  },
+
+  "projects": [
+    // The smallest entry: only the folder. The name is the folder name ("website").
+    { "path": "~/workspace/website" },
+
+    // A custom name, plus extra folders that are opened alongside the main one.
+    {
+      "name": "Mobile app",
+      "path": "~/workspace/mobile/app",
+      "folders": ["~/workspace/mobile/design-system", "~/workspace/mobile/api-client"],
+    },
+
+    // Overrides the default permission mode for this project only.
+    { "name": "API", "path": "~/workspace/api", "permissionMode": "plan" },
+
+    // Paths can also be relative to this file's folder.
+    // { "name": "Scratch", "path": "../scratch" },
+  ],
+}

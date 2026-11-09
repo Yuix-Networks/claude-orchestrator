@@ -13,6 +13,9 @@ claude-orchestrator start work
 claude-orchestrator list
 ```
 
+Or run `claude-orchestrator` with no arguments and do all of it from a menu (see
+[Interactive mode](#interactive-mode)).
+
 > **Renamed in v0.2.0:** `claude-ctl` is now `claude-orchestrator`, because the tool
 > manages sessions as well as instances. The data directory stays at
 > `~/Library/Application Support/claude-ctl/`, so existing instances keep working.
@@ -42,6 +45,122 @@ hands the login back through a single `claude://` link that only one running Cla
 receive. It reopens them when you press Enter.
 
 ---
+
+## Interactive mode
+
+Run the command with no arguments in a terminal:
+
+```bash
+claude-orchestrator
+```
+
+Everything day-to-day can be done from the menu. You don't need to remember commands,
+session ids or file paths:
+
+```
+Claude Orchestrator
+───────────────────────────────────────
+❯ Work        ● running
+  Personal    ● running
+  School      ○ stopped   not logged in
+───────────────────────────────────────
+  + New profile
+  Projects…
+```
+
+### What you can do
+
+| Screen | Options |
+|---|---|
+| **Home** | Every profile with **running / stopped**, and a warning when it is not logged in. Below them: **+ New profile** and **Projects…** |
+| **Profile** (logged in) | **Start**, or **Stop** / **Restart** when it is running · **Sessions…** · **Log in again…** |
+| **Profile** (not logged in) | **Log in** only. The other options appear after you log in |
+| **Sessions…** | The profile's sessions, newest first. Type to fuzzy-filter by title, account or project folder |
+| **A session** | Its details (account, project, start, last activity, messages, size, id) · **Copy to…** · **Move to…** |
+| **+ New profile** | Asks for a name, creates the profile and opens its menu so you can log in right away |
+| **Projects…** | The registered projects and their state in each profile · **+ Add project** · **Apply a projects.json…** · **Export to a projects.json…** · **Sync all profiles** · **Import from a profile…** |
+| **A project** | Its folders, permission mode and per-profile state · **Remove…** |
+
+**Keys:** ↑/↓ (or Ctrl-P / Ctrl-N) to move, Enter to choose, Esc to go back (in a
+search box, Esc clears the text first), `q` on the home screen to quit, Ctrl-U to clear
+a search or text field, Ctrl-C to cancel.
+
+**What happens behind the screens:**
+
+- **Log in** / **Log in again…** run the `signin --exclusive` flow. After you confirm,
+  the other running instances are closed while you log in, so the browser's
+  `claude://` link comes back to the right window. They are reopened when you press
+  Enter. Use **Log in again…** when a login has expired or the profile should use a
+  different account.
+- **Copy to…** / **Move to…** ask for the target account (skipped when there is only
+  one other account), then show what will happen and wait for `y`. Instances that
+  have to be closed are shut down one after the other, the session is transferred,
+  and they are reopened even if the transfer fails. A copy closes only the target and
+  the source keeps its session. A move closes both and keeps the original as a backup.
+- Anything that writes (logging in, transfers, project changes) asks for confirmation
+  first, then prints the same report as the matching command and waits for Enter.
+- The menu refuses to close an instance it is running inside (for example a terminal
+  in Claude's Code tab), because that would end the menu halfway through. Run it from
+  a regular terminal such as Terminal or iTerm.
+
+### Setting up projects from a JSON file
+
+A project is a folder that shows up as an environment in the Code tab of **every**
+profile. Instead of adding them one by one, describe them in a file and apply it:
+
+1. Copy the example file and edit the paths:
+
+   ```bash
+   mkdir -p ~/.config/claude-orchestrator
+   cp examples/projects.json ~/.config/claude-orchestrator/projects.json
+   ```
+
+   [`examples/projects.json`](examples/projects.json) shows every option: a minimal
+   entry, a custom name, extra folders, a per-project permission mode and shared
+   `defaults`. If you already have projects, **Projects… → Export to a projects.json…**
+   writes them to the file so you can start from there.
+
+2. Open **Projects… → Apply a projects.json…**. The default path is already filled
+   in. Press Enter.
+
+3. Check the preview. The file is checked as a whole first, and every problem (a
+   missing folder, a duplicate name, a misspelled key) is listed at once. Nothing
+   changes until the file is clean.
+
+   ```
+   Apply ~/.config/claude-orchestrator/projects.json
+
+     + website  ~/workspace/website
+     + Mobile app  ~/workspace/mobile/app
+     ~ api → API
+     - old-project  (not in the file)
+
+   ❯ Apply changes
+     Apply and remove the 1 not in the file
+     Cancel
+   ```
+
+   `+` is added, `~` is changed or renamed, and `-` is registered but missing from the
+   file. **Apply changes** keeps those. **Apply and remove…** deletes them, which makes
+   the registry match the file exactly.
+
+4. The projects are written to every profile. A profile that has not logged in yet
+   gets them on its first start after login. The **Projects…** list shows where each
+   project stands: ✓ in sync, ✗ missing (fix it with **Sync all profiles**), … waiting
+   for the first login.
+
+The same file works without the menu (`project apply --dry-run`, `project apply`,
+`project apply --prune`). See [Keeping the list in a file](#keeping-the-list-in-a-file)
+for the full format and the details of how Claude Desktop stores environments.
+
+### Trying it safely
+
+Set `CLAUDE_ORCHESTRATOR_HOME` to point any command, the menu included, at a separate
+data directory. You can then experiment without touching your real profiles:
+
+```bash
+CLAUDE_ORCHESTRATOR_HOME=/tmp/co-test claude-orchestrator
+```
 
 ## Why
 
@@ -110,6 +229,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 
 | Command | What it does |
 |---|---|
+| `claude-orchestrator` | Interactive menu: profiles, sessions, projects (see [Interactive mode](#interactive-mode)) |
 | `claude-orchestrator version` | Print the version |
 | `claude-orchestrator new <name> [--workdir <path>] [--sessions-from <instance>]` | Create an instance; optionally seed a default project and copy another instance's sessions |
 | `claude-orchestrator start <name> [--folder <path>]` | Start the instance (separate profile + config) |
@@ -133,41 +253,6 @@ when a field is removed or renamed.
 
 Exit codes: `0` success, `1` runtime error, `2` usage error.
 
-### Interactive mode
-
-Run `claude-orchestrator` with no arguments in a terminal to manage profiles from a
-menu:
-
-- The list shows every profile as **running** or **stopped**, and flags the ones that
-  are not logged in. Move with ↑/↓, open one with Enter, quit with `q`.
-- A profile's menu offers **Start** (or **Stop** / **Restart** when it is running),
-  **Sessions…** and **Log in again…**, for when the login has expired or the profile
-  should use another account. A profile that is not logged in offers only **Log in**;
-  the other actions appear once it is. Both login entries run the `signin --exclusive`
-  flow: after a confirmation, other running instances are closed while you log in.
-- **Sessions…** lists the profile's sessions with the same fuzzy search as the
-  interactive move. Picking one shows its details and offers **Copy to…** and
-  **Move to…**: choose the account (skipped when there is only one), confirm, and the
-  instances that have to be closed are shut down and reopened afterwards. A copy only
-  closes the target; the source keeps its session.
-- **+ New profile** asks for a name and opens the new profile's menu, so you can log in
-  right away.
-- **Projects…** lists the registered projects with their state in every profile
-  (✓ in sync, ✗ missing, … waiting for the first login) and lets you add one (folder,
-  then name), remove one, **apply a `projects.json`** (with a preview of what is added,
-  changed, renamed or left out, and a separate choice to remove projects that are not in
-  the file), export the list to a file, sync all profiles, or import the environments a
-  profile already has. These run the same code as the `project` subcommands, so their
-  reports are the same (in Turkish, like the rest of the CLI).
-
-Esc goes back a screen everywhere.
-
-Like the interactive move, it refuses to stop an instance when it is itself running
-inside that instance (a Code tab terminal).
-
-Set `CLAUDE_ORCHESTRATOR_HOME=<dir>` to point any command at a different data directory,
-for example to try things out without touching your real instances.
-
 ## Projects (environments) in every instance
 
 Claude Desktop keeps the Code tab's environments per profile and per account. Without
@@ -188,8 +273,12 @@ claude-orchestrator project remove "Site"            # also removes it from the 
 
 ### Keeping the list in a file
 
-You can edit the list by hand in a JSON file and apply it. The default file is
-`~/.config/claude-orchestrator/projects.json`:
+You can edit the list by hand in a JSON file and apply it, from the menu
+(**Projects… → Apply a projects.json…**, see
+[Setting up projects from a JSON file](#setting-up-projects-from-a-json-file)) or with
+`project apply`. The default file is `~/.config/claude-orchestrator/projects.json`. A
+fully commented example is in [`examples/projects.json`](examples/projects.json). The
+smallest useful file:
 
 ```json
 {
