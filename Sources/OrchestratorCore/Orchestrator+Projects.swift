@@ -17,6 +17,14 @@ public struct ProjectSyncResult: Equatable {
     public var isRunning: Bool
     public var applied: PresetApplyResult?
     public var error: String?
+    /// Profilde Desktop arayüz deposu var mı? Varsa Claude listeyi kendi deposundan
+    /// okur; dosyaya eklenenler `reimportProjects` (`--reset-desktop`) olmadan görünmez.
+    public var desktopStateExists: Bool = false
+
+    /// Dosyaya ortam eklendi ama Claude onları kendiliğinden görmeyecek.
+    public var needsDesktopReimport: Bool {
+        desktopStateExists && (applied?.addedCount ?? 0) > 0
+    }
 }
 
 /// Proje kaldırmanın instance başına sonucu.
@@ -130,6 +138,55 @@ extension Orchestrator {
         return results
     }
 
+    // MARK: - Desktop arayüz deposu
+
+    /// Claude Desktop'un environment listesini dosyadan yeniden içeri almasını sağlar.
+    ///
+    /// Desktop listeyi arayüzün kendi deposunda (`Local Storage`,
+    /// `ccd-session-presets.<hesap>` anahtarı) tutar ve `ccd-session-presets.json`
+    /// dosyasını yalnızca o hesapla ilk açılışta bir kez içeri alır; sonra dosyayı
+    /// kendi listesiyle ezer. Profil kapalıyken `Local Storage` yedeğe alınınca bir
+    /// sonraki açılış dosyayı yeniden içeri alır. Giriş etkilenmez (çerezler ayrı);
+    /// kaybolan yalnızca arayüz tercihleridir (kenar çubuğu düzeni, taslaklar…).
+    ///
+    /// - Returns: Yedeğin konumu (`Local Storage` yoksa `nil`).
+    /// - Throws: Instance çalışıyorsa (çalışan arayüz listeyi geri yazar).
+    @discardableResult
+    public func resetDesktopState(instance: String) throws -> URL? {
+        let endpoint = try endpoint(instance)
+        guard !endpoint.isDefault else {
+            throw OrchestratorError.usage("varsayılan Claude kurulumunun arayüz deposu sıfırlanmaz")
+        }
+        if endpoint.isRunning {
+            throw OrchestratorError.runtime("instance çalışıyor: \(instance) — önce 'claude-orchestrator stop \(instance)'")
+        }
+        let storage = endpoint.profileDir.appendingPathComponent("Local Storage")
+        guard FileManager.default.fileExists(atPath: storage.path) else { return nil }
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+        let backup = endpoint.profileDir.appendingPathComponent("Local Storage.bak-\(stamp)")
+        try FileManager.default.moveItem(at: storage, to: backup)
+        return backup
+    }
+
+    /// Tüm instance'larda arayüz deposunu sıfırlayıp kayıtlı projeleri yeniden yazar.
+    ///
+    /// Önce hepsinin kapalı olduğu doğrulanır; biri bile çalışıyorsa hiçbir şey
+    /// değiştirilmez.
+    public func reimportProjects(instance: String? = nil) throws -> (backups: [String: URL], synced: [ProjectSyncResult]) {
+        let endpoints = try instance.map { [try endpoint($0)] } ?? instanceEndpoints()
+        let running = endpoints.filter(\.isRunning).map(\.name)
+        guard running.isEmpty else {
+            throw OrchestratorError.runtime(
+                "çalışan instance'lar var: \(running.joined(separator: ", ")) — önce durdur (çalışan Claude listeyi geri yazar)"
+            )
+        }
+        var backups: [String: URL] = [:]
+        for endpoint in endpoints {
+            if let backup = try resetDesktopState(instance: endpoint.name) { backups[endpoint.name] = backup }
+        }
+        return (backups, try syncProjects(instance: instance))
+    }
+
     // MARK: - Senkronlama
 
     /// Kayıtlı projeleri instance profillerine yazar (idempotent).
@@ -142,11 +199,15 @@ extension Orchestrator {
         let projects = try only ?? self.projects()
         let endpoints = try instance.map { [try endpoint($0)] } ?? instanceEndpoints()
         return endpoints.map { endpoint in
+            let state = FileManager.default.fileExists(
+                atPath: endpoint.profileDir.appendingPathComponent("Local Storage").path)
             do {
                 let applied = try seeder.apply(projects.map(\.presetSpec), to: endpoint.profileDir, allAccounts: true)
-                return ProjectSyncResult(instance: endpoint.name, isRunning: endpoint.isRunning, applied: applied, error: nil)
+                return ProjectSyncResult(instance: endpoint.name, isRunning: endpoint.isRunning, applied: applied,
+                                         error: nil, desktopStateExists: state)
             } catch {
-                return ProjectSyncResult(instance: endpoint.name, isRunning: endpoint.isRunning, applied: nil, error: "\(error)")
+                return ProjectSyncResult(instance: endpoint.name, isRunning: endpoint.isRunning, applied: nil,
+                                         error: "\(error)", desktopStateExists: state)
             }
         }
     }

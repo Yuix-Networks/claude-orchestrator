@@ -212,4 +212,85 @@ final class ProjectTests: XCTestCase {
         let again = try ctl.importProjects(from: "default")
         XCTAssertEqual(again.imported, [], "ikinci içe aktarma tekrar eklememeli")
     }
+
+    // MARK: - Desktop katalog biçimi
+
+    func testCatalogIsMarkedInitializedSoDesktopDoesNotWipeIt() throws {
+        _ = try ctl.new(name: "is", workdir: nil)
+        try signIn("is", account: "acct-is")
+        // Desktop'un ilk açılışta yazdığı biçim: işaret false, liste boş.
+        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
+        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-is": [
+            "presets": [], "builtIns": ["local": ["settings": ["modelId": "x"]]], "seededFromDraft": false
+        ]]]).write(to: presetsURL)
+
+        _ = try ctl.addProject(name: "VPN", path: vpn.path)
+
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: presetsURL)) as? [String: Any])
+        let catalog = try XCTUnwrap((object["byAccount"] as? [String: Any])?["acct-is"] as? [String: Any])
+        XCTAssertEqual(catalog["seededFromDraft"] as? Bool, true)
+        XCTAssertEqual(((catalog["builtIns"] as? [String: Any])?["local"] as? [String: Any]) != nil, true,
+                       "Desktop'un builtIns ayarları korunmalı")
+        XCTAssertEqual(cwds(catalog["presets"] as? [[String: Any]]), [vpn.path])
+    }
+
+    func testSyncRepairsOldCatalogWithoutMarkerEvenWhenNothingIsAdded() throws {
+        _ = try ctl.new(name: "is", workdir: nil)
+        try signIn("is", account: "acct-is")
+        _ = try ctl.addProject(name: "VPN", path: vpn.path)
+        // v0.2.6 ve öncesinin yazdığı biçim: işaret yok.
+        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
+        let list = try XCTUnwrap(try presets(paths.profileDir("is"))["acct-is"])
+        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-is": ["presets": list]]]).write(to: presetsURL)
+
+        let results = try ctl.syncProjects()
+
+        XCTAssertEqual(results.first?.applied?.addedCount, 0)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: presetsURL)) as? [String: Any])
+        let catalog = (object["byAccount"] as? [String: Any])?["acct-is"] as? [String: Any]
+        XCTAssertEqual(catalog?["seededFromDraft"] as? Bool, true)
+    }
+
+    // MARK: - Desktop arayüz deposu
+
+    func testResetDesktopStateMovesLocalStorageAsideAndKeepsLogin() throws {
+        _ = try ctl.new(name: "is", workdir: nil)
+        try signIn("is", account: "acct-is")
+        let profile = paths.profileDir("is")
+        let storage = profile.appendingPathComponent("Local Storage/leveldb")
+        try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
+        try "durum".write(to: storage.appendingPathComponent("000001.log"), atomically: true, encoding: .utf8)
+        try "cerez".write(to: profile.appendingPathComponent("Cookies"), atomically: true, encoding: .utf8)
+        _ = try ctl.addProject(name: "VPN", path: vpn.path)
+
+        let (backups, synced) = try ctl.reimportProjects()
+
+        let backup = try XCTUnwrap(backups["is"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: profile.appendingPathComponent("Local Storage").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.appendingPathComponent("leveldb/000001.log").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: profile.appendingPathComponent("Cookies").path), "giriş korunmalı")
+        XCTAssertEqual(synced.first?.error, nil)
+        XCTAssertEqual(cwds(try presets(profile)["acct-is"]), [vpn.path])
+    }
+
+    func testResetDesktopStateRefusesWhenAnyInstanceIsRunning() throws {
+        _ = try ctl.new(name: "is", workdir: nil)
+        _ = try ctl.new(name: "okul", workdir: nil)
+        for name in ["is", "okul"] {
+            try FileManager.default.createDirectory(
+                at: paths.profileDir(name).appendingPathComponent("Local Storage"), withIntermediateDirectories: true)
+        }
+        launcher.runningPids[paths.profileDir("okul").path] = 7
+
+        XCTAssertThrowsError(try ctl.reimportProjects()) { error in
+            XCTAssertTrue("\(error)".contains("okul"), "\(error)")
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.profileDir("is").appendingPathComponent("Local Storage").path),
+                      "biri çalışıyorsa hiçbirine dokunulmamalı")
+    }
+
+    func testResetDesktopStateIsNoOpWithoutLocalStorage() throws {
+        _ = try ctl.new(name: "is", workdir: nil)
+        XCTAssertNil(try ctl.resetDesktopState(instance: "is"))
+    }
 }

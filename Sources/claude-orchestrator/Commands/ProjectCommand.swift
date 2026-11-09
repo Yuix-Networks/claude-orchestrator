@@ -10,9 +10,11 @@ enum ProjectCommand {
     project add <yol> [--name <ad>] [--folder <ek-yol>]... [--replace] [--json]
     project list [--json]
     project remove <ad> [--keep] [--json]
-    project sync [--instance <ad>] [--json]
+    project sync [--instance <ad>] [--reset-desktop] [--json]
     project import --from <instance|default> [--json]
-    project apply [<dosya>] [--prune] [--dry-run] [--json]
+    project apply [<dosya>] [--prune] [--dry-run] [--reset-desktop] [--json]
+    (--reset-desktop: Claude'un listeyi dosyadan yeniden içeri alması için profillerin
+     arayüz deposunu yedekler; profiller kapalı olmalı)
     project export [<dosya>] [--force]
     (varsayılan dosya: ~/.config/claude-orchestrator/projects.json)
     """
@@ -129,8 +131,16 @@ enum ProjectCommand {
     // MARK: - sync
 
     static func sync(_ args: [String]) throws {
-        let parsed = try Arguments(args, allowed: ["instance", "json"])
-        let results = try Orchestrator().syncProjects(instance: parsed.optionalFlag("instance"))
+        let parsed = try Arguments(args, allowed: ["instance", "reset-desktop", "json"])
+        let ctl = Orchestrator()
+        let results: [ProjectSyncResult]
+        if parsed.has("reset-desktop") {
+            let (backups, synced) = try ctl.reimportProjects(instance: parsed.optionalFlag("instance"))
+            reportBackups(backups, json: parsed.has("json"))
+            results = synced
+        } else {
+            results = try ctl.syncProjects(instance: parsed.optionalFlag("instance"))
+        }
         if parsed.has("json") {
             Output.json(["instances": results.map(dictionary)])
             return
@@ -168,12 +178,27 @@ enum ProjectCommand {
     // MARK: - apply
 
     static func applyManifest(_ args: [String]) throws {
-        let parsed = try Arguments(args, allowed: ["prune", "dry-run", "json"])
+        let parsed = try Arguments(args, allowed: ["prune", "dry-run", "reset-desktop", "json"])
         let url = manifestURL(parsed.positionals.first)
         let ctl = Orchestrator()
         let plan = try ctl.planApply(try Orchestrator.loadManifest(url), prune: parsed.has("prune"))
         let dryRun = parsed.has("dry-run")
-        let result = dryRun ? nil : try ctl.apply(plan)
+        let reset = parsed.has("reset-desktop")
+        if reset, !dryRun {
+            // Çalışan instance varsa kayda dokunmadan önce dur.
+            let running = try ctl.instanceEndpoints().filter(\.isRunning).map(\.name)
+            guard running.isEmpty else {
+                throw OrchestratorError.runtime(
+                    "çalışan instance'lar var: \(running.joined(separator: ", ")) — önce durdur (çalışan Claude listeyi geri yazar)"
+                )
+            }
+        }
+        var result = dryRun ? nil : try ctl.apply(plan)
+        if reset, !dryRun {
+            let (backups, synced) = try ctl.reimportProjects()
+            reportBackups(backups, json: parsed.has("json"))
+            result?.synced = synced
+        }
 
         if parsed.has("json") {
             Output.json([
@@ -200,7 +225,7 @@ enum ProjectCommand {
             let names = plan.untracked.map(\.name).joined(separator: ", ")
             Output.line("  not: dosyada olmayan \(plan.untracked.count) kayıtlı proje kaldı (\(names)) — silmek için --prune")
         }
-        if let result, plan.hasChanges {
+        if let result, plan.hasChanges || reset {
             Output.line("")
             report(result.synced)
             for failure in result.withdrawn where failure.error != nil {
@@ -255,6 +280,16 @@ enum ProjectCommand {
             : URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent(expanded)
     }
 
+    static func reportBackups(_ backups: [String: URL], json: Bool) {
+        guard !json else { return }
+        for (instance, backup) in backups.sorted(by: { $0.key < $1.key }) {
+            Output.line("  \(instance): arayüz deposu yedeklendi → \(backup.lastPathComponent)")
+        }
+        if !backups.isEmpty {
+            Output.line("  Claude bir sonraki açılışta environment listesini dosyadan içeri alacak")
+        }
+    }
+
     // MARK: - Çıktı
 
     static func report(_ results: [ProjectSyncResult]) {
@@ -273,12 +308,15 @@ enum ProjectCommand {
                     line = applied.permissionModesSet > 0 ? "güncel (izin modları yazıldı)" : "güncel"
                 } else {
                     line = "\(applied.addedCount) ortam eklendi (\(applied.accounts.count) hesap)"
-                        + (result.isRunning ? " — çalışıyor, yeniden başlatınca görünür" : "")
                 }
             } else {
                 line = "-"
             }
             Output.line("  \(result.instance): \(line)")
+            if result.needsDesktopReimport {
+                Output.line("    uyarı: Claude bu profilde listeyi kendi deposunda tutuyor; yeni ortamlar görünmez —"
+                    + " profili kapatıp: claude-orchestrator project sync --instance \(result.instance) --reset-desktop")
+            }
             if let blocked = result.applied?.bypassBlockedAccounts, !blocked.isEmpty {
                 Output.line("    uyarı: \(blocked.count) hesapta organizasyon politikası bypass modunu kapatmış; orada çalışmaz")
             }

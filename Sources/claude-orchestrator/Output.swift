@@ -50,5 +50,5 @@ enum Confirm {
 
 /// Sürüm (release etiketiyle aynı tutulur: `v<current>`).
 enum AppVersion {
-    static let current = "0.2.6"
+    static let current = "0.2.7"
 }

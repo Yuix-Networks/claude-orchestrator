@@ -1,8 +1,8 @@
 class ClaudeOrchestrator < Formula
   desc "Run multiple Claude Desktop instances and move sessions between them"
   homepage "https://github.com/Yuix-Networks/claude-orchestrator"
-  url "https://github.com/Yuix-Networks/claude-orchestrator/releases/download/v0.2.6/claude-orchestrator-0.2.6.tar.gz"
-  version "0.2.6"
+  url "https://github.com/Yuix-Networks/claude-orchestrator/releases/download/v0.2.7/claude-orchestrator-0.2.7.tar.gz"
+  version "0.2.7"
   sha256 "bf19ee2f08dc81360e27433b5ee6e8aaf20584cfdf43bcd5c9af65b589e8cfa5"
   license "MIT"
 

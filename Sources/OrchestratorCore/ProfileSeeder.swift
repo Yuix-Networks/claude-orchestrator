@@ -133,9 +133,22 @@ public struct ProfileSeeder {
 
         var added: [String: [String]] = [:]
         let now = Int64(Date().timeIntervalSince1970 * 1000)
+        var catalogChanged = false
         for account in accounts {
             var entry = try dictionary(byAccount[account], in: url) ?? [:]
             var list = try presetList(entry["presets"], in: url)
+            // Claude Desktop, `seededFromDraft` alanı olmayan bir hesap kataloğunu
+            // "henüz kurulmamış" sayar: açılışta boş bir katalog kurup dosyanın
+            // üzerine yazar ve eklediğimiz ortamlar silinir. Desktop'un kendi
+            // kurduğu kataloglardaki gibi işaretlenir.
+            if entry["seededFromDraft"] as? Bool != true {
+                entry["seededFromDraft"] = true
+                catalogChanged = true
+            }
+            if entry["builtIns"] == nil {
+                entry["builtIns"] = [String: Any]()
+                catalogChanged = true
+            }
             for spec in specs where !list.contains(where: { Self.cwd(of: $0) == spec.cwd }) {
                 var target: [String: Any] = ["kind": "local", "cwd": spec.cwd]
                 if !spec.additionalFolders.isEmpty { target["additionalFolders"] = spec.additionalFolders }
@@ -152,7 +165,7 @@ public struct ProfileSeeder {
             byAccount[account] = entry
         }
 
-        if !added.isEmpty {
+        if !added.isEmpty || catalogChanged {
             presets["byAccount"] = byAccount
             try writeObject(presets, to: url)
         }

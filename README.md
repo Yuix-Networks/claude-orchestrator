@@ -207,8 +207,21 @@ claude-orchestrator project apply --prune      # also delete projects that are n
   In a profile that has seen several accounts, every account gets the project.
 - An environment that already exists for the same folder is left alone, including its
   name, model and other settings.
-- A running instance sees changes after a restart. If Claude overwrites the file
-  meanwhile, the next `start` writes the changes again.
+- **Claude reads the list file only once per account.** Claude Desktop keeps
+  environments in its own UI storage (the profile's `Local Storage`). It imports
+  `ccd-session-presets.json` the first time the account opens in that profile, then
+  overwrites the file with its own list. So:
+  - Projects written before the first sign-in show up on their own.
+  - In an instance that has already been opened, stop it and run
+    `claude-orchestrator project sync --reset-desktop` (or
+    `project apply --reset-desktop`). This moves the profile's `Local Storage` to
+    `Local Storage.bak-<time>` and writes the full list, and Claude imports it on the
+    next start.
+  - Sign-in is not affected, since cookies live elsewhere. The instance does lose its
+    UI preferences, such as sidebar layout and dismissed tips.
+  - Instances that are running are refused, because a running Claude would write its
+    list back.
+  - `apply` and `sync` warn when they add environments to an instance that needs this.
 - `project remove` keeps a folder trusted if another project or the instance's workdir
   still uses it.
 

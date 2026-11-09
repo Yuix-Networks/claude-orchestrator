@@ -147,6 +147,13 @@ claude-orchestrator session last --from <instance> --to <instance>
 - [ ] İzin modunun Desktop'ta gerçekten varsayılan olarak seçildiği girişli bir instance'ta
       gözle doğrulanmadı (anahtarlar gerçek profildeki kayıtlarla aynı biçimde)
 - [x] `memory`: `~/.claude/CLAUDE.md` her instance'ın config dizinine sembolik bağ
+- [x] Desktop ortam listesini arayüz deposunda (`Local Storage` → `ccd-session-presets.<hesap>`)
+      tutuyor; `ccd-session-presets.json`'u hesap başına yalnızca ilk açılışta içeri alıyor
+      (`fileMirrored`), sonra ezip geçiyor. `--reset-desktop` profil kapalıyken `Local Storage`'ı
+      yedekleyip listeyi yeniden içeri aldırıyor (serdar'da canlı doğrulandı: açılış sonrası 41 ortam
+      korundu, Claude dosyayı yeniden yazmadı)
+- [ ] Daha hassas yol: yalnızca `ccd-session-presets.<hesap>` anahtarını LevelDB'de düzenlemek
+      (arayüz tercihleri korunur; Claude'un iç biçimine bağlı)
 - [ ] Çalışan instance'a anında yansıtma yok (Claude dosyayı bellekte tutuyor; yeniden
       başlatma gerekiyor)
 
