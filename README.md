@@ -133,6 +133,26 @@ when a field is removed or renamed.
 
 Exit codes: `0` success, `1` runtime error, `2` usage error.
 
+### Interactive mode
+
+Run `claude-orchestrator` with no arguments in a terminal to manage profiles from a
+menu:
+
+- The list shows every profile as **running** or **stopped**, and flags the ones that
+  are not logged in. Move with ↑/↓, open one with Enter, quit with `q`.
+- A profile's menu offers **Start** (or **Stop** / **Restart** when it is running),
+  **Log in** (the `signin --exclusive` flow: other running instances are closed while
+  you log in, after a confirmation) and **Move a session…** (the interactive move,
+  limited to that profile's sessions). Esc goes back.
+- **+ New profile** at the bottom asks for a name and opens the new profile's menu, so
+  you can start it or log in right away.
+
+Like the interactive move, it refuses to stop an instance when it is itself running
+inside that instance (a Code tab terminal).
+
+Set `CLAUDE_ORCHESTRATOR_HOME=<dir>` to point any command at a different data directory,
+for example to try things out without touching your real instances.
+
 ## Projects (environments) in every instance
 
 Claude Desktop keeps the Code tab's environments per profile and per account. Without

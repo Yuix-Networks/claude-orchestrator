@@ -16,8 +16,14 @@ public struct Paths: Sendable, Equatable {
     /// Araç `claude-orchestrator` olarak yeniden adlandırıldı ama veri dizini
     /// bilinçli olarak eski adıyla kalıyor: v0.1.0 ile oluşturulmuş instance'lar
     /// taşıma gerektirmeden çalışmaya devam eder.
+    ///
+    /// `CLAUDE_ORCHESTRATOR_HOME` verilirse kök odur (deneme/test için gerçek
+    /// instance'lara dokunmadan çalıştırmak).
     public static var `default`: Paths {
-        Paths(root: URL(fileURLWithPath: NSHomeDirectory())
+        if let override = ProcessInfo.processInfo.environment["CLAUDE_ORCHESTRATOR_HOME"], !override.isEmpty {
+            return Paths(root: URL(fileURLWithPath: override))
+        }
+        return Paths(root: URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Application Support/claude-ctl"))
     }
 

@@ -11,6 +11,8 @@ KULLANIM
   claude-orchestrator <komut> [argümanlar]
 
 KOMUTLAR
+  (argümansız)                   Etkileşimli ana ekran: profiller, başlat/durdur,
+                                 giriş, oturum taşıma, yeni profil
   version                        Sürümü yazdırır
   new <ad> [--workdir <yol>] [--sessions-from <instance>]
                                  Instance oluşturur (isteğe bağlı: workdir, oturumlar)
@@ -58,6 +60,11 @@ Detaylı bilgi: https://github.com/Yuix-Networks/claude-orchestrator
 
 do {
     guard let command = rawArguments.first else {
+        // Argümansız + terminal: etkileşimli ana ekran.
+        if isatty(STDIN_FILENO) != 0 {
+            try HomeInteractive.run()
+            exit(ExitCode.success)
+        }
         Output.error("komut gerekli (yardım: claude-orchestrator help)", code: ExitCode.usage)
     }
 
