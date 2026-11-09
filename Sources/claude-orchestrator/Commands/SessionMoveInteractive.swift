@@ -81,12 +81,15 @@ enum SessionMoveInteractive {
                     throw OrchestratorError.runtime(blocker)
                 }
                 if assumeYes { break flow }
-                switch confirm(located: located, target: targetName, move: true, instances: instances, ui: ui) {
-                case true: break flow
-                case false:
+                // `Bool?` üzerinde switch: eski Swift sürümleri true/false/nil'i
+                // kapsayıcı saymıyor (v0.2.8 ilk release derlemesi bu yüzden düştü).
+                let answer = confirm(located: located, target: targetName, move: true, instances: instances, ui: ui)
+                if answer == true { break flow }
+                if answer == false {
                     ui.restore()
                     throw OrchestratorError.runtime("cancelled — nothing was changed")
-                case nil:
+                }
+                do {
                     // Geri: hedef ekranı gösterildiyse ona, değilse oturum listesine.
                     let candidates = instances.filter { $0.name != located.endpoint.name }
                     if to == nil, candidates.count > 1 {
