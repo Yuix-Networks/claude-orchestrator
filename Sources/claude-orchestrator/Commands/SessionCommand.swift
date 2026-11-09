@@ -8,6 +8,8 @@ enum SessionCommand {
     session show <oturum-id> [--instance <ad>] [--json]
     session copy <oturum-id> --to <instance> [--instance <kaynak>] [--force] [--json]
     session move <oturum-id> --to <instance> [--instance <kaynak>] [--force] [--json]
+    session move [<oturum-id>] [--to <instance>] [--instance <kaynak>] [--yes]
+                 (kimlik ya da --to verilmezse etkileşimli: ara, seç, onayla)
     session last --from <instance> --to <instance> [--copy] [--force] [--json]
     """
 
@@ -97,7 +99,18 @@ enum SessionCommand {
     // MARK: - copy / move
 
     static func transfer(_ args: [String], move: Bool, command: String) throws {
-        let parsed = try Arguments(args, allowed: ["instance", "to", "force", "json"])
+        let parsed = try Arguments(args, allowed: Set(["instance", "to", "force", "json"] + (move ? ["yes"] : [])))
+        // Etkileşimli taşıma: oturum ya da hedef verilmemişse ekranlarla seçilir.
+        if move, parsed.positionals.isEmpty || parsed.optionalFlag("to") == nil,
+           !parsed.has("json"), !parsed.has("force") {
+            try SessionMoveInteractive.run(
+                id: parsed.positionals.first,
+                from: parsed.optionalFlag("instance"),
+                to: parsed.optionalFlag("to"),
+                assumeYes: parsed.has("yes")
+            )
+            return
+        }
         let id = try parsed.requirePositional(0, name: "oturum kimliği", command: command)
         let to = try parsed.requireFlag("to", command: command)
 

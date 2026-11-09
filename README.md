@@ -281,6 +281,27 @@ Chats in the Chat tab are not transferred. They are stored in your claude.ai acc
 not on disk, so an instance signed in to the same account already sees them and an
 instance signed in to a different account cannot open them.
 
+### Interactive move
+
+Run `session move` with no arguments to pick everything on screen:
+
+```bash
+claude-orchestrator session move
+```
+
+1. **Pick the session.** Type to fuzzy-filter by title, account or project folder
+   (case and Turkish letters are ignored), move with ↑/↓ (or Ctrl-P/Ctrl-N), press Enter.
+2. **Pick the target account.** Every account except the session's owner is listed. This
+   screen is skipped when there is only one other account.
+3. **Confirm.** The Claude instances of both accounts that are running are shut down one
+   after the other, the session is moved, and they are reopened. Press `y` to go ahead;
+   Esc goes back a screen.
+
+`session move <id>` opens only the screens it still needs, and `--to` / `--instance`
+narrow the choice; `--yes` skips the confirmation. Passing both an id and `--to` keeps
+the old, non-interactive behaviour. Run it from a regular terminal: started from inside
+an instance it would have to shut down (a Code tab terminal), it refuses.
+
 ## Menu bar agent
 
 ```bash

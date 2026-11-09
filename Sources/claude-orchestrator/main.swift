@@ -43,6 +43,8 @@ KOMUTLAR
   session list [--instance <ad>] [--project <yol>] [--running] [--json]
   session show <id> [--instance <ad>] [--json]
   session copy|move <id> --to <instance> [--instance <kaynak>] [--force]
+  session move                   Etkileşimli: oturumu ara/seç, hedef hesabı seç, onayla
+                                 (kaynak/hedef sırayla kapatılıp yeniden açılır)
   session last --from <instance> --to <instance> [--copy] [--force]
                                  Claude Code oturumlarını instance'lar arasında aktarır
                                  ('default' = instance dışı Claude kurulumu)
