@@ -141,6 +141,8 @@ enum HomeInteractive {
         case stop = "Stop"
         case restart = "Restart"
         case logIn = "Log in"
+        /// Giriş yapılmış profilde: oturum düşmüşse ya da hesap değişecekse.
+        case logInAgain = "Log in again…"
         case moveSession = "Move a session…"
         case back = "Back"
     }
@@ -152,7 +154,7 @@ enum HomeInteractive {
             // Giriş yapılmamış profilde yapılabilecek tek anlamlı şey giriş
             // (başlatmayı da giriş akışı yapar); diğer eylemler girişten sonra çıkar.
             let actions: [Action] = status.accountSignedIn
-                ? (status.isRunning ? [.stop, .restart] : [.start]) + [.logIn, .moveSession, .back]
+                ? (status.isRunning ? [.stop, .restart] : [.start]) + [.moveSession, .logInAgain, .back]
                 : [.logIn]
             var picker = PickerModel(items: actions.map(\.rawValue), searchable: false)
 
@@ -191,7 +193,7 @@ enum HomeInteractive {
                     let started = try ctl.start(name: name, folder: nil)
                     return "Restarted \(display(name)) (pid \(started.pid))."
                 }
-            case .logIn:
+            case .logIn, .logInAgain:
                 // Giriş sırasında diğer çalışan instance'lar kapatılır.
                 let others = ((try? ctl.list(includeSizes: false)) ?? [])
                     .filter { $0.name != name && $0.isRunning }.map(\.name)

@@ -141,10 +141,11 @@ menu:
 - The list shows every profile as **running** or **stopped**, and flags the ones that
   are not logged in. Move with ↑/↓, open one with Enter, quit with `q`.
 - A profile's menu offers **Start** (or **Stop** / **Restart** when it is running),
-  **Log in** (the `signin --exclusive` flow: other running instances are closed while
-  you log in, after a confirmation) and **Move a session…** (the interactive move,
-  limited to that profile's sessions). Esc goes back. A profile that is not logged in
-  offers only **Log in**; the other actions appear once it is.
+  **Move a session…** (the interactive move, limited to that profile's sessions) and
+  **Log in again…**, for when the login has expired or the profile should use another
+  account. Esc goes back. A profile that is not logged in offers only **Log in**; the
+  other actions appear once it is. Both login entries run the `signin --exclusive` flow:
+  after a confirmation, other running instances are closed while you log in.
 - **+ New profile** at the bottom asks for a name and opens the new profile's menu, so
   you can start it or log in right away.
 
