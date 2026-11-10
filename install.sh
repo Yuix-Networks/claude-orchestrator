@@ -87,7 +87,7 @@ base="https://github.com/$REPO/releases/download/v$version"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-say "downloading claude-orchestrator $version…"
+say "downloading claude-orchestrator ${version}…"
 curl -fsSL -o "$tmp/$archive" "$base/$archive" || die "download failed: $base/$archive"
 curl -fsSL -o "$tmp/$archive.sha256" "$base/$archive.sha256" || die "could not download the checksum"
 
