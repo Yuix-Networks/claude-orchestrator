@@ -51,5 +51,5 @@ enum Confirm {
 
 /// Version (kept in step with the release tag: `v<current>`).
 enum AppVersion {
-    static let current = "0.2.8"
+    static let current = "0.2.9"
 }
