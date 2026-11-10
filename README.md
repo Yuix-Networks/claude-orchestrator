@@ -7,6 +7,9 @@ its own profile, account, sessions, Claude Code config and working directory.
 **original, signed** app with a different data directory, so code signature, notarization,
 permissions and the built-in updater all keep working.
 
+Developed by the **Nameocean Team** — [nameocean.net](https://nameocean.net) ·
+[yuix.org](https://yuix.org).
+
 ```
 claude-orchestrator new work --workdir ~/workspace/my-project
 claude-orchestrator start work
@@ -503,6 +506,17 @@ swift build
 swift test
 ./Scripts/smoke.sh     # live end-to-end check (starts real Claude instances)
 ```
+
+## About
+
+`claude-orchestrator` is developed by the **Nameocean Team** at
+[Yuix Networks](https://yuix.org). We built it to run several Claude accounts and
+projects side by side while working on [nameocean.net](https://nameocean.net), our
+domain and hosting platform.
+
+- Website: [nameocean.net](https://nameocean.net)
+- Company: [yuix.org](https://yuix.org)
+- Issues and ideas: [GitHub Issues](https://github.com/Yuix-Networks/claude-orchestrator/issues)
 
 ## License
 
