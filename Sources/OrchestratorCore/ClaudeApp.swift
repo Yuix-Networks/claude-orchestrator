@@ -1,12 +1,12 @@
 import Foundation
 
-/// Kurulu Claude Desktop uygulaması hakkında salt-okunur bilgi.
+/// Read-only information about the installed Claude Desktop app.
 ///
-/// Global kural: bu modül uygulama bundle'ine asla yazmaz; yalnızca okur.
+/// Global rule: this module never writes to the app bundle; it only reads it.
 public enum ClaudeApp {
     public static let defaultPath = "/Applications/Claude.app"
 
-    /// Kurulu uygulamanın `CFBundleShortVersionString` değeri (okunamazsa `nil`).
+    /// The installed app's `CFBundleShortVersionString` (`nil` if it can't be read).
     public static func version(appPath: String = defaultPath) -> String? {
         let infoPlist = URL(fileURLWithPath: appPath)
             .appendingPathComponent("Contents/Info.plist")
@@ -17,7 +17,7 @@ public enum ClaudeApp {
         return version
     }
 
-    /// Uygulama kurulu mu?
+    /// Is the app installed?
     public static func isInstalled(appPath: String = defaultPath) -> Bool {
         FileManager.default.fileExists(atPath: appPath)
     }

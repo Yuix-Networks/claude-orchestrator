@@ -1,12 +1,12 @@
 import OrchestratorCore
 import Foundation
 
-/// Etkileşimli `session move`: oturum ara/seç → hedef hesap seç → onayla.
+/// Interactive `session move`: find/pick a session → pick the target account → confirm.
 ///
-/// Oturum kimliği verilmezse 1. ekran, `--to` verilmezse 2. ekran açılır
-/// (hedef olabilecek tek hesap varsa 2. ekran atlanır). Onaydan sonra kaynak
-/// ve hedef instance'lar sırayla kapatılır, oturum taşınır, kapatılanlar
-/// yeniden açılır.
+/// Screen 1 opens when no session id is given, screen 2 when `--to` is missing
+/// (screen 2 is skipped if only one account can be the target). After
+/// confirmation the source and target instances are closed in turn, the session
+/// is moved, and the closed instances are reopened.
 enum SessionMoveInteractive {
     static func run(id: String?, from: String?, to: String?, assumeYes: Bool) throws {
         let ctl = Orchestrator()
@@ -15,15 +15,15 @@ enum SessionMoveInteractive {
         if let id { preselected = try ctl.findSession(id, instance: from) }
         let sessions = preselected == nil ? try ctl.sessions(instance: from) : []
         if preselected == nil, sessions.isEmpty {
-            throw OrchestratorError.notFound(from.map { "'\($0)' instance'ında oturum yok" } ?? "oturum yok")
+            throw OrchestratorError.notFound(from.map { "no sessions in instance '\($0)'" } ?? "no sessions")
         }
         let instances = try ctl.instanceEndpoints()
         if let to { _ = try ctl.endpoint(to) }
 
         guard let ui = TerminalUI() else {
             throw OrchestratorError.usage(
-                "session move: etkileşimli seçim için terminal gerekli — "
-                + "betiklerde: session move <oturum-id> --to <instance>"
+                "session move: interactive selection needs a terminal; "
+                + "in scripts use: session move <session-id> --to <instance>"
             )
         }
 
@@ -57,7 +57,7 @@ enum SessionMoveInteractive {
                     }
                     screen = .confirm
                 } else if candidates.count == 1 {
-                    // Tek seçenek varsa sormaya gerek yok.
+                    // With only one option there is nothing to ask.
                     target = candidates[0].name
                     screen = .confirm
                 } else {
@@ -81,8 +81,8 @@ enum SessionMoveInteractive {
                     throw OrchestratorError.runtime(blocker)
                 }
                 if assumeYes { break flow }
-                // `Bool?` üzerinde switch: eski Swift sürümleri true/false/nil'i
-                // kapsayıcı saymıyor (v0.2.8 ilk release derlemesi bu yüzden düştü).
+                // No `switch` on `Bool?`: older Swift versions don't treat true/false/nil
+                // as exhaustive (this broke the first v0.2.8 release build).
                 let answer = confirm(located: located, target: targetName, move: true, instances: instances, ui: ui)
                 if answer == true { break flow }
                 if answer == false {
@@ -90,7 +90,7 @@ enum SessionMoveInteractive {
                     throw OrchestratorError.runtime("cancelled — nothing was changed")
                 }
                 do {
-                    // Geri: hedef ekranı gösterildiyse ona, değilse oturum listesine.
+                    // Back: to the target screen if it was shown, otherwise to the session list.
                     let candidates = instances.filter { $0.name != located.endpoint.name }
                     if to == nil, candidates.count > 1 {
                         target = nil
@@ -127,7 +127,7 @@ enum SessionMoveInteractive {
 
     private enum Screen { case sessions, target, confirm }
 
-    // MARK: - Ekran 1: oturumlar
+    // MARK: - Screen 1: sessions
 
     static func searchText(_ located: LocatedSession) -> String {
         let session = located.session
@@ -135,7 +135,7 @@ enum SessionMoveInteractive {
         return "\(title(session)) \(located.endpoint.name) \(project)"
     }
 
-    /// Seçilen indeks; iptalde `nil`.
+    /// The selected index; `nil` when cancelled.
     static func pick(
         _ picker: inout PickerModel,
         ui: TerminalUI,
@@ -183,7 +183,7 @@ enum SessionMoveInteractive {
             let selected = row == picker.selection
             let base = selected ? Style.inverse : ""
             let marker = selected ? "❯ " : "  "
-            // Arama metni "<başlık> <instance> <proje>": başlıktaki eşleşmeler vurgulanır.
+            // Search text is "<title> <instance> <project>": matches in the title are highlighted.
             let name = title(located.session)
             let titlePositions = entry.positions.filter { $0 < name.count }
             let running = located.endpoint.isRunning ? "●" : " "
@@ -200,7 +200,7 @@ enum SessionMoveInteractive {
         return (lines, (1, prompt.count + picker.query.count))
     }
 
-    // MARK: - Ekran 2: hedef hesap
+    // MARK: - Screen 2: target account
 
     static func pickTarget(
         _ picker: inout PickerModel,
@@ -230,9 +230,9 @@ enum SessionMoveInteractive {
         }
     }
 
-    // MARK: - Ekran 3: onay
+    // MARK: - Screen 3: confirmation
 
-    /// `true` onay, `false` iptal, `nil` geri.
+    /// `true` confirm, `false` cancel, `nil` back.
     static func confirm(
         located: LocatedSession,
         target: String,
@@ -283,9 +283,9 @@ enum SessionMoveInteractive {
         }
     }
 
-    /// Bu komut, kapatılacak bir instance'ın içinden (Code sekmesi terminali,
-    /// Claude Code aracı) çalışıyorsa kapanış komutu da sonlandırır; taşıma
-    /// yarıda kalır ve instance'lar yeniden açılmaz.
+    /// If this command runs inside an instance that is about to be closed (a Code
+    /// tab terminal, a Claude Code tool), closing it kills the command too: the
+    /// move stops halfway and the instances are not reopened.
     static func selfStopBlocker(located: LocatedSession, target: String, move: Bool, instances: [SessionEndpoint]) -> String? {
         guard let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] else { return nil }
         let current = URL(fileURLWithPath: configDir).standardizedFileURL.path
@@ -296,14 +296,14 @@ enum SessionMoveInteractive {
             + "for the \(move ? "move" : "copy") — run the command from a regular terminal (Terminal, iTerm) instead"
     }
 
-    // MARK: - Biçimlendirme
+    // MARK: - Formatting
 
     static func title(_ session: SessionSummary) -> String {
         let raw = session.title ?? session.firstPrompt ?? session.id
         return raw.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespaces)
     }
 
-    /// Hesap adı ekranda baş harfi büyük gösterilir (`merve` → `Merve`).
+    /// Account names are shown capitalized (`work` → `Work`).
     static func display(_ name: String) -> String {
         name.prefix(1).uppercased() + name.dropFirst()
     }
@@ -320,7 +320,7 @@ enum SessionMoveInteractive {
         return time.string(from: date)
     }
 
-    /// Seçili satırı görünür tutan satır aralığı.
+    /// The row range that keeps the selected row visible.
     private static func scrollWindow(selection: Int, count: Int, height: Int) -> Range<Int> {
         guard count > height else { return 0..<count }
         let start = min(max(0, selection - height / 2), count - height)

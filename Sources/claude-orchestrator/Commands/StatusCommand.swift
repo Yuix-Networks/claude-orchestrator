@@ -1,11 +1,11 @@
 import OrchestratorCore
 import Foundation
 
-/// `claude-orchestrator status <ad> [--json]`
+/// `claude-orchestrator status <name> [--json]`
 enum StatusCommand {
     static func run(_ args: [String]) throws {
         let parsed = try Arguments(args, allowed: ["json"])
-        let name = try parsed.requirePositional(0, name: "instance adı", command: "status")
+        let name = try parsed.requirePositional(0, name: "instance name", command: "status")
         let ctl = Orchestrator()
         let status = try ctl.status(name: name)
 
@@ -23,14 +23,14 @@ enum StatusCommand {
             return
         }
 
-        Output.line("instance:    \(status.name)")
-        Output.line("durum:      \(status.isRunning ? "çalışıyor" : "durdu")\(status.pid.map { " (pid \($0))" } ?? "")")
+        Output.line("instance:   \(status.name)")
+        Output.line("status:     \(status.isRunning ? "running" : "stopped")\(status.pid.map { " (pid \($0))" } ?? "")")
         if let startedAt = status.startedAt {
-            Output.line("başlangıç:  \(ISO8601DateFormatter().string(from: startedAt))")
+            Output.line("started:    \(ISO8601DateFormatter().string(from: startedAt))")
         }
         Output.line("workdir:    \(status.workdir ?? "-")")
-        Output.line("profil:     \(ctl.paths.profileDir(name).path)")
-        Output.line("boyut:      \(ByteCountFormatter.string(fromByteCount: status.profileSizeBytes, countStyle: .file))")
-        Output.line("oturum:     \(status.accountSignedIn ? "var" : "yok (giriş yapılmamış olabilir)")")
+        Output.line("profile:    \(ctl.paths.profileDir(name).path)")
+        Output.line("size:       \(ByteCountFormatter.string(fromByteCount: status.profileSizeBytes, countStyle: .file))")
+        Output.line("signed in:  \(status.accountSignedIn ? "yes" : "no (sign-in may be needed)")")
     }
 }

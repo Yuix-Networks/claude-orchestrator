@@ -1,9 +1,9 @@
 import OrchestratorCore
 import Foundation
 
-/// Etkileşimli ekranlar için en küçük terminal katmanı: ham mod, tuş okuma,
-/// alternatif ekranda çizim. Girdi ve çıktı `/dev/tty` üzerinden gider;
-/// stdout bir boruya yönlendirilmiş olsa da ekranlar terminalde görünür.
+/// Minimal terminal layer for the interactive screens: raw mode, key reading,
+/// drawing on the alternate screen. Input and output go through `/dev/tty`,
+/// so the screens show up in the terminal even when stdout is piped.
 final class TerminalUI {
     private let fd: Int32
     private var original = termios()
@@ -11,7 +11,7 @@ final class TerminalUI {
     private var pending: [UInt8] = []
     private var restored = false
 
-    /// Terminal yoksa `nil`.
+    /// `nil` when there is no terminal.
     init?() {
         guard isatty(STDIN_FILENO) != 0 else { return nil }
         let tty = open("/dev/tty", O_RDWR)
@@ -32,7 +32,7 @@ final class TerminalUI {
         write("\u{1B}[?1049h\u{1B}[H")
     }
 
-    /// Ham modu ve ana ekranı geri getirir. Birden çok kez çağrılabilir.
+    /// Leaves raw mode and restores the main screen. Safe to call more than once.
     func restore() {
         guard !restored else { return }
         restored = true
@@ -51,10 +51,10 @@ final class TerminalUI {
         return (Int(window.ws_row), Int(window.ws_col))
     }
 
-    // MARK: - Çizim
+    // MARK: - Drawing
 
-    /// Ekranı temizleyip satırları yazar; imleç verilen satır/sütuna konur
-    /// (`nil` → imleç gizlenir).
+    /// Clears the screen and writes the lines; the cursor goes to the given
+    /// row/column (`nil` hides the cursor).
     func draw(_ lines: [String], cursor: (row: Int, column: Int)? = nil) {
         var output = "\u{1B}[?25l\u{1B}[H\u{1B}[2J"
         output += lines.joined(separator: "\r\n")
@@ -76,9 +76,9 @@ final class TerminalUI {
         }
     }
 
-    // MARK: - Girdi
+    // MARK: - Input
 
-    /// Bir sonraki tuşu bekler.
+    /// Waits for the next key.
     func readKey() -> PickerKey {
         while true {
             if let key = decode() { return key }
@@ -86,11 +86,11 @@ final class TerminalUI {
         }
     }
 
-    /// Girdi tamponunu doldurur. `timeoutMs < 0` → bir bayt gelene dek bekler.
+    /// Fills the input buffer. `timeoutMs < 0` waits until a byte arrives.
     ///
-    /// Zaman aşımı `poll` ile değil termios `VMIN=0/VTIME` ile yapılır:
-    /// macOS'ta `poll()` tty aygıtlarında çalışmaz (tek Esc bir sonraki
-    /// tuşa kadar takılı kalıyordu).
+    /// The timeout uses termios `VMIN=0/VTIME`, not `poll`: on macOS `poll()`
+    /// does not work on tty devices (a lone Esc used to hang until the next
+    /// key press).
     private func fill(timeoutMs: Int32) -> Bool {
         if timeoutMs >= 0 {
             var timed = raw
@@ -114,7 +114,7 @@ final class TerminalUI {
         guard let first = pending.first else { return nil }
         switch first {
         case 0x1B:
-            // Tek başına Esc mi, kaçış dizisi mi? Kısa süre devamını bekle.
+            // A lone Esc or an escape sequence? Wait briefly for more bytes.
             if pending.count == 1, !fill(timeoutMs: 100) {
                 take(1)
                 return .escape
@@ -126,7 +126,7 @@ final class TerminalUI {
                 return .escape
             }
             if pending.count < 3, !fill(timeoutMs: 100) { take(2); return .escape }
-            // CSI: parametre baytları (0x30–0x3F) + son bayt (0x40–0x7E).
+            // CSI: parameter bytes (0x30–0x3F) + final byte (0x40–0x7E).
             var end = 2
             while end < pending.count, (0x30...0x3F).contains(pending[end]) { end += 1 }
             guard end < pending.count else { take(pending.count); return nil }
@@ -155,7 +155,7 @@ final class TerminalUI {
         case 0x00...0x1F:
             take(1); return nil
         default:
-            // UTF-8 karakteri: baştaki bayttan uzunluğu çıkar.
+            // UTF-8 character: work out the length from the lead byte.
             let length = first >= 0xF0 ? 4 : first >= 0xE0 ? 3 : first >= 0xC0 ? 2 : 1
             while pending.count < length {
                 guard fill(timeoutMs: 100) else { take(pending.count); return nil }
@@ -167,7 +167,7 @@ final class TerminalUI {
     }
 }
 
-// MARK: - Metin yardımcıları
+// MARK: - Text helpers
 
 enum Style {
     static let reset = "\u{1B}[0m"
@@ -180,14 +180,14 @@ enum Style {
 }
 
 extension String {
-    /// Görünür genişliğe göre kırpar/doldurur (kaçış dizisi içermeyen metin için).
+    /// Truncates/pads to a visible width (for text without escape sequences).
     func fitted(_ width: Int) -> String {
         guard width > 0 else { return "" }
         if count > width { return String(prefix(width - 1)) + "…" }
         return self + String(repeating: " ", count: width - count)
     }
 
-    /// Eşleşen konumları vurgular; `width`'e kırpar ve doldurur.
+    /// Highlights the matched positions; truncates and pads to `width`.
     func highlighted(_ positions: [Int], width: Int, base: String = "") -> String {
         let fitted = self.fitted(width)
         let marks = Set(positions)
@@ -202,7 +202,7 @@ extension String {
         return output + Style.reset
     }
 
-    /// Uzun metni kelime sınırlarından satırlara böler.
+    /// Wraps long text into lines at word boundaries.
     func wrapped(_ width: Int) -> [String] {
         var lines: [String] = []
         for paragraph in components(separatedBy: "\n") {

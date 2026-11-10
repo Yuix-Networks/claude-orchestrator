@@ -32,9 +32,9 @@ final class LogReaderTests: XCTestCase {
 
     func testFiltersOutLinesOlderThanSince() throws {
         try writeLog([
-            "2026-11-08 10:00:00 [info] [A] eski satır",
-            "2026-11-08 12:00:00 [info] [B] yeni satır",
-            "2026-11-08 14:00:00 [info] [C] daha yeni satır"
+            "2026-11-08 10:00:00 [info] [A] old line",
+            "2026-11-08 12:00:00 [info] [B] new line",
+            "2026-11-08 14:00:00 [info] [C] newer line"
         ])
 
         let lines = LogReader(logDirectory: logDirectory).lines(
@@ -44,15 +44,15 @@ final class LogReaderTests: XCTestCase {
         )
 
         XCTAssertEqual(lines.count, 2)
-        XCTAssertTrue(lines[0].contains("yeni satır"))
-        XCTAssertTrue(lines[1].contains("daha yeni satır"))
+        XCTAssertTrue(lines[0].contains("new line"))
+        XCTAssertTrue(lines[1].contains("newer line"))
     }
 
     func testFiltersLinesByPid() throws {
         try writeLog([
             "2026-11-08 10:00:00 [info] [proc] electron_main:1111 rss=1MB",
             "2026-11-08 10:00:01 [info] [proc] electron_main:2222 rss=2MB",
-            "2026-11-08 10:00:02 [info] [other] pid yok"
+            "2026-11-08 10:00:02 [info] [other] no pid"
         ])
 
         let lines = LogReader(logDirectory: logDirectory).lines(
@@ -66,7 +66,7 @@ final class LogReaderTests: XCTestCase {
     }
 
     func testReturnsLastNLine() throws {
-        try writeLog((1...10).map { "2026-11-08 10:00:0\($0 % 10) [info] [A] satır \($0)" })
+        try writeLog((1...10).map { "2026-11-08 10:00:0\($0 % 10) [info] [A] line \($0)" })
 
         let lines = LogReader(logDirectory: logDirectory).lines(
             since: Date.distantPast,
@@ -75,13 +75,13 @@ final class LogReaderTests: XCTestCase {
         )
 
         XCTAssertEqual(lines.count, 3)
-        XCTAssertTrue(lines[2].contains("satır 10"))
+        XCTAssertTrue(lines[2].contains("line 10"))
     }
 
     func testKeepsLinesWithoutTimestampButAppliesPidFilter() throws {
         try writeLog([
-            "2026-11-08 10:00:00 [info] [A] zaman damgalı",
-            "zaman damgasız satır electron_main:2222"
+            "2026-11-08 10:00:00 [info] [A] timestamped",
+            "untimestamped line electron_main:2222"
         ])
 
         let lines = LogReader(logDirectory: logDirectory).lines(
@@ -91,7 +91,7 @@ final class LogReaderTests: XCTestCase {
         )
 
         XCTAssertEqual(lines.count, 1)
-        XCTAssertTrue(lines[0].contains("zaman damgasız"))
+        XCTAssertTrue(lines[0].contains("untimestamped"))
     }
 
     private func date(_ string: String) -> Date {
@@ -101,12 +101,12 @@ final class LogReaderTests: XCTestCase {
         return formatter.date(from: string)!
     }
 
-    // MARK: - Büyük dosya (sondan okuma)
+    // MARK: - Large file (reading from the end)
 
     func testReadsTailOfLargeFileAcrossChunkBoundaries() throws {
-        // Blok boyutunu birkaç kez aşan bir dosya: satırlar blok sınırında bölünür.
+        // A file several times the chunk size: lines get split at chunk boundaries.
         let count = 5_000
-        let lines = (0..<count).map { "2026-11-08 12:00:00 [info] satır \($0) " + String(repeating: "x", count: 40) }
+        let lines = (0..<count).map { "2026-11-08 12:00:00 [info] line \($0) " + String(repeating: "x", count: 40) }
         try writeLog(lines)
 
         let result = LogReader(logDirectory: logDirectory).lines(since: Date.distantPast, limit: 3)
@@ -115,7 +115,7 @@ final class LogReaderTests: XCTestCase {
     }
 
     func testUnlimitedReturnsAllLinesInOrder() throws {
-        let lines = (0..<3_000).map { "satır \($0) " + String(repeating: "y", count: 50) }
+        let lines = (0..<3_000).map { "line \($0) " + String(repeating: "y", count: 50) }
         try writeLog(lines)
 
         let result = LogReader(logDirectory: logDirectory).lines(since: Date.distantPast, limit: 0)
@@ -123,7 +123,7 @@ final class LogReaderTests: XCTestCase {
         XCTAssertEqual(result, lines)
     }
 
-    // MARK: - Takip (follow)
+    // MARK: - Follow
 
     private func append(_ text: String) throws {
         let url = logDirectory.appendingPathComponent("main.log")
@@ -134,23 +134,23 @@ final class LogReaderTests: XCTestCase {
     }
 
     func testFollowerReturnsOnlyNewCompleteLines() throws {
-        try writeLog(["eski"])
+        try writeLog(["old"])
         let follower = LogFollower(url: logDirectory.appendingPathComponent("main.log"))
 
         XCTAssertEqual(follower.poll(), [])
-        try append("yeni 1\nyarım")
-        XCTAssertEqual(follower.poll(), ["yeni 1"], "yarım satır tüketilmemeli")
-        try append(" satır\n")
-        XCTAssertEqual(follower.poll(), ["yarım satır"])
+        try append("new 1\npartial")
+        XCTAssertEqual(follower.poll(), ["new 1"], "a partial line should not be consumed")
+        try append(" line\n")
+        XCTAssertEqual(follower.poll(), ["partial line"])
     }
 
     func testFollowerDetectsRotation() throws {
-        try writeLog(["eski 1", "eski 2", "eski 3"])
+        try writeLog(["old 1", "old 2", "old 3"])
         let follower = LogFollower(url: logDirectory.appendingPathComponent("main.log"))
 
-        // Döndürme: dosya yeni bir dosyayla değiştirilir (atomik yazma → yeni inode).
-        try writeLog(["döndürüldü"])
+        // Rotation: the file is replaced with a new one (atomic write → new inode).
+        try writeLog(["rotated"])
 
-        XCTAssertEqual(follower.poll(), ["döndürüldü"])
+        XCTAssertEqual(follower.poll(), ["rotated"])
     }
 }

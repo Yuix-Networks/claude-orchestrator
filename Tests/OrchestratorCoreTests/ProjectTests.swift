@@ -33,9 +33,9 @@ final class ProjectTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    // MARK: - Yardımcılar
+    // MARK: - Helpers
 
-    /// Instance profilini "giriş yapılmış" hale getirir.
+    /// Puts the instance profile into a "signed in" state.
     private func signIn(_ instance: String, account: String) throws {
         let profile = paths.profileDir(instance)
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
@@ -64,78 +64,78 @@ final class ProjectTests: XCTestCase {
     // MARK: - add
 
     func testAddWritesEnvironmentToEverySignedInInstance() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        _ = try ctl.new(name: "okul", workdir: nil)
-        try signIn("is", account: "acct-is")
-        try signIn("okul", account: "acct-okul")
+        _ = try ctl.new(name: "job", workdir: nil)
+        _ = try ctl.new(name: "school", workdir: nil)
+        try signIn("job", account: "acct-job")
+        try signIn("school", account: "acct-school")
 
         let (project, results) = try ctl.addProject(name: "VPN", path: vpn.path, additionalFolders: [site.path])
 
         XCTAssertEqual(project.path, vpn.path)
-        XCTAssertEqual(results.map(\.instance), ["is", "okul"])
-        XCTAssertEqual(cwds(try presets(paths.profileDir("is"))["acct-is"]), [vpn.path])
-        XCTAssertEqual(cwds(try presets(paths.profileDir("okul"))["acct-okul"]), [vpn.path])
+        XCTAssertEqual(results.map(\.instance), ["job", "school"])
+        XCTAssertEqual(cwds(try presets(paths.profileDir("job"))["acct-job"]), [vpn.path])
+        XCTAssertEqual(cwds(try presets(paths.profileDir("school"))["acct-school"]), [vpn.path])
 
-        let preset = try XCTUnwrap(try presets(paths.profileDir("is"))["acct-is"]?.first)
+        let preset = try XCTUnwrap(try presets(paths.profileDir("job"))["acct-job"]?.first)
         XCTAssertEqual(preset["name"] as? String, "VPN")
         XCTAssertEqual((preset["target"] as? [String: Any])?["additionalFolders"] as? [String], [site.path])
-        XCTAssertEqual(Set(try trusted("is")), [vpn.path, site.path])
+        XCTAssertEqual(Set(try trusted("job")), [vpn.path, site.path])
     }
 
     func testAddWritesToAllAccountsInOneProfile() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        try signIn("is", account: "acct-yeni")
-        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
-        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-eski": ["presets": []]]]).write(to: presetsURL)
+        _ = try ctl.new(name: "job", workdir: nil)
+        try signIn("job", account: "acct-new")
+        let presetsURL = paths.profileDir("job").appendingPathComponent("ccd-session-presets.json")
+        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-old": ["presets": []]]]).write(to: presetsURL)
 
         _ = try ctl.addProject(name: nil, path: vpn.path)
 
-        let all = try presets(paths.profileDir("is"))
-        XCTAssertEqual(cwds(all["acct-eski"]), [vpn.path])
-        XCTAssertEqual(cwds(all["acct-yeni"]), [vpn.path])
-        XCTAssertEqual(all["acct-yeni"]?.first?["name"] as? String, "vpn", "ad verilmezse klasör adı")
+        let all = try presets(paths.profileDir("job"))
+        XCTAssertEqual(cwds(all["acct-old"]), [vpn.path])
+        XCTAssertEqual(cwds(all["acct-new"]), [vpn.path])
+        XCTAssertEqual(all["acct-new"]?.first?["name"] as? String, "vpn", "folder name when no name is given")
     }
 
     func testAddBeforeSignInAddsTrustedFolderAndStartCompletesLater() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
+        _ = try ctl.new(name: "job", workdir: nil)
 
         let (_, results) = try ctl.addProject(name: "VPN", path: vpn.path)
 
         XCTAssertEqual(results.first?.applied?.accounts, [])
-        XCTAssertEqual(try trusted("is"), [vpn.path])
+        XCTAssertEqual(try trusted("job"), [vpn.path])
         XCTAssertEqual(try ctl.projectPresence(try XCTUnwrap(try ctl.projects().first)).first?.presence, .pendingSignIn)
 
-        // Giriş yapıldı; bir sonraki start ortamı yazar.
-        try signIn("is", account: "acct-is")
-        _ = try ctl.start(name: "is", folder: nil)
+        // Signed in; the next start writes the environment.
+        try signIn("job", account: "acct-job")
+        _ = try ctl.start(name: "job", folder: nil)
 
-        XCTAssertEqual(cwds(try presets(paths.profileDir("is"))["acct-is"]), [vpn.path])
+        XCTAssertEqual(cwds(try presets(paths.profileDir("job"))["acct-job"]), [vpn.path])
         XCTAssertEqual(try ctl.projectPresence(try XCTUnwrap(try ctl.projects().first)).first?.presence, .synced)
     }
 
     func testNewInstanceReceivesRegisteredProjects() throws {
         _ = try ctl.addProject(name: "VPN", path: vpn.path)
 
-        _ = try ctl.new(name: "yeni", workdir: nil)
+        _ = try ctl.new(name: "fresh", workdir: nil)
 
-        XCTAssertEqual(try trusted("yeni"), [vpn.path])
+        XCTAssertEqual(try trusted("fresh"), [vpn.path])
     }
 
     func testAddIsIdempotentAndKeepsUserSettings() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        try signIn("is", account: "acct-is")
-        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
-        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-is": ["presets": [[
-            "id": "x", "name": "Benim VPN", "target": ["kind": "local", "cwd": vpn.path],
+        _ = try ctl.new(name: "job", workdir: nil)
+        try signIn("job", account: "acct-job")
+        let presetsURL = paths.profileDir("job").appendingPathComponent("ccd-session-presets.json")
+        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-job": ["presets": [[
+            "id": "x", "name": "My VPN", "target": ["kind": "local", "cwd": vpn.path],
             "settings": ["modelId": "claude-opus-5-5"]
         ]]]]]).write(to: presetsURL)
 
         _ = try ctl.addProject(name: "VPN", path: vpn.path)
         _ = try ctl.syncProjects()
 
-        let list = try XCTUnwrap(try presets(paths.profileDir("is"))["acct-is"])
-        XCTAssertEqual(list.count, 1, "aynı klasör için ikinci ortam yazılmamalı")
-        XCTAssertEqual(list.first?["name"] as? String, "Benim VPN", "kullanıcının ortamı değiştirilmemeli")
+        let list = try XCTUnwrap(try presets(paths.profileDir("job"))["acct-job"])
+        XCTAssertEqual(list.count, 1, "no second environment should be written for the same folder")
+        XCTAssertEqual(list.first?["name"] as? String, "My VPN", "the user's environment should not be modified")
         XCTAssertNotNil(list.first?["settings"])
     }
 
@@ -144,8 +144,8 @@ final class ProjectTests: XCTestCase {
 
         XCTAssertThrowsError(try ctl.addProject(name: "VPN", path: site.path))
         XCTAssertNoThrow(try ctl.addProject(name: "VPN", path: site.path, replace: true))
-        XCTAssertThrowsError(try ctl.addProject(name: "Başka", path: site.path), "aynı klasör iki adla kaydedilemez")
-        XCTAssertThrowsError(try ctl.addProject(name: "Yok", path: root.appendingPathComponent("yok").path))
+        XCTAssertThrowsError(try ctl.addProject(name: "Other", path: site.path), "the same folder cannot be registered under two names")
+        XCTAssertThrowsError(try ctl.addProject(name: "Missing", path: root.appendingPathComponent("missing").path))
         XCTAssertThrowsError(try ctl.addProject(name: "  ", path: vpn.path))
     }
 
@@ -164,26 +164,26 @@ final class ProjectTests: XCTestCase {
     // MARK: - remove
 
     func testRemoveDeletesEnvironmentButKeepsFoldersStillInUse() throws {
-        _ = try ctl.new(name: "is", workdir: site.path)
-        try signIn("is", account: "acct-is")
+        _ = try ctl.new(name: "job", workdir: site.path)
+        try signIn("job", account: "acct-job")
         _ = try ctl.addProject(name: "VPN", path: vpn.path, additionalFolders: [site.path])
 
         let results = try ctl.removeProject(name: "VPN")
 
         XCTAssertEqual(results.first?.removed?.presetsRemoved, 1)
-        XCTAssertFalse(cwds(try presets(paths.profileDir("is"))["acct-is"]).contains(vpn.path))
-        XCTAssertFalse(try trusted("is").contains(vpn.path))
-        XCTAssertTrue(try trusted("is").contains(site.path), "instance workdir'i güvenli klasörlerden çıkarılmamalı")
+        XCTAssertFalse(cwds(try presets(paths.profileDir("job"))["acct-job"]).contains(vpn.path))
+        XCTAssertFalse(try trusted("job").contains(vpn.path))
+        XCTAssertTrue(try trusted("job").contains(site.path), "the instance workdir should not be removed from trusted folders")
         XCTAssertEqual(try ctl.projects(), [])
     }
 
     func testRemoveWithKeepLeavesInstancesUntouched() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        try signIn("is", account: "acct-is")
+        _ = try ctl.new(name: "job", workdir: nil)
+        try signIn("job", account: "acct-job")
         _ = try ctl.addProject(name: "VPN", path: vpn.path)
 
         XCTAssertEqual(try ctl.removeProject(name: "VPN", keepInInstances: true), [])
-        XCTAssertEqual(cwds(try presets(paths.profileDir("is"))["acct-is"]), [vpn.path])
+        XCTAssertEqual(cwds(try presets(paths.profileDir("job"))["acct-job"]), [vpn.path])
         XCTAssertThrowsError(try ctl.removeProject(name: "VPN"))
     }
 
@@ -194,103 +194,103 @@ final class ProjectTests: XCTestCase {
         try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
         try JSONSerialization.data(withJSONObject: ["byAccount": [
             "acct-1": ["presets": [
-                ["name": "vpn eski", "lastUsedAt": 1, "target": ["kind": "local", "cwd": vpn.path]],
-                ["name": "silinmiş", "lastUsedAt": 5, "target": ["kind": "local", "cwd": "/yok/boyle/bir/yer"]]
+                ["name": "vpn old", "lastUsedAt": 1, "target": ["kind": "local", "cwd": vpn.path]],
+                ["name": "deleted", "lastUsedAt": 5, "target": ["kind": "local", "cwd": "/no/such/place"]]
             ]],
             "acct-2": ["presets": [
-                ["name": "vpn yeni", "lastUsedAt": 9, "target": ["kind": "local", "cwd": vpn.path]],
-                ["name": "uzak", "target": ["kind": "remote", "cwd": site.path]]
+                ["name": "vpn new", "lastUsedAt": 9, "target": ["kind": "local", "cwd": vpn.path]],
+                ["name": "remote", "target": ["kind": "remote", "cwd": site.path]]
             ]]
         ]]).write(to: profile.appendingPathComponent("ccd-session-presets.json"))
 
         let result = try ctl.importProjects(from: "default")
 
-        XCTAssertEqual(result.imported.map(\.name), ["vpn yeni"])
-        XCTAssertEqual(result.skipped.map(\.path), ["/yok/boyle/bir/yer"])
+        XCTAssertEqual(result.imported.map(\.name), ["vpn new"])
+        XCTAssertEqual(result.skipped.map(\.path), ["/no/such/place"])
         XCTAssertEqual(try ctl.projects().map(\.path), [vpn.path])
 
         let again = try ctl.importProjects(from: "default")
-        XCTAssertEqual(again.imported, [], "ikinci içe aktarma tekrar eklememeli")
+        XCTAssertEqual(again.imported, [], "a second import should not add again")
     }
 
-    // MARK: - Desktop katalog biçimi
+    // MARK: - Desktop catalog format
 
     func testCatalogIsMarkedInitializedSoDesktopDoesNotWipeIt() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        try signIn("is", account: "acct-is")
-        // Desktop'un ilk açılışta yazdığı biçim: işaret false, liste boş.
-        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
-        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-is": [
+        _ = try ctl.new(name: "job", workdir: nil)
+        try signIn("job", account: "acct-job")
+        // The format Desktop writes on first launch: marker false, empty list.
+        let presetsURL = paths.profileDir("job").appendingPathComponent("ccd-session-presets.json")
+        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-job": [
             "presets": [], "builtIns": ["local": ["settings": ["modelId": "x"]]], "seededFromDraft": false
         ]]]).write(to: presetsURL)
 
         _ = try ctl.addProject(name: "VPN", path: vpn.path)
 
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: presetsURL)) as? [String: Any])
-        let catalog = try XCTUnwrap((object["byAccount"] as? [String: Any])?["acct-is"] as? [String: Any])
+        let catalog = try XCTUnwrap((object["byAccount"] as? [String: Any])?["acct-job"] as? [String: Any])
         XCTAssertEqual(catalog["seededFromDraft"] as? Bool, true)
         XCTAssertEqual(((catalog["builtIns"] as? [String: Any])?["local"] as? [String: Any]) != nil, true,
-                       "Desktop'un builtIns ayarları korunmalı")
+                       "Desktop's builtIns settings should be preserved")
         XCTAssertEqual(cwds(catalog["presets"] as? [[String: Any]]), [vpn.path])
     }
 
     func testSyncRepairsOldCatalogWithoutMarkerEvenWhenNothingIsAdded() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        try signIn("is", account: "acct-is")
+        _ = try ctl.new(name: "job", workdir: nil)
+        try signIn("job", account: "acct-job")
         _ = try ctl.addProject(name: "VPN", path: vpn.path)
-        // v0.2.6 ve öncesinin yazdığı biçim: işaret yok.
-        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
-        let list = try XCTUnwrap(try presets(paths.profileDir("is"))["acct-is"])
-        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-is": ["presets": list]]]).write(to: presetsURL)
+        // The format written by v0.2.6 and earlier: no marker.
+        let presetsURL = paths.profileDir("job").appendingPathComponent("ccd-session-presets.json")
+        let list = try XCTUnwrap(try presets(paths.profileDir("job"))["acct-job"])
+        try JSONSerialization.data(withJSONObject: ["byAccount": ["acct-job": ["presets": list]]]).write(to: presetsURL)
 
         let results = try ctl.syncProjects()
 
         XCTAssertEqual(results.first?.applied?.addedCount, 0)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: presetsURL)) as? [String: Any])
-        let catalog = (object["byAccount"] as? [String: Any])?["acct-is"] as? [String: Any]
+        let catalog = (object["byAccount"] as? [String: Any])?["acct-job"] as? [String: Any]
         XCTAssertEqual(catalog?["seededFromDraft"] as? Bool, true)
     }
 
-    // MARK: - Desktop arayüz deposu
+    // MARK: - Desktop UI storage
 
     func testResetDesktopStateMovesLocalStorageAsideAndKeepsLogin() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        try signIn("is", account: "acct-is")
-        let profile = paths.profileDir("is")
+        _ = try ctl.new(name: "job", workdir: nil)
+        try signIn("job", account: "acct-job")
+        let profile = paths.profileDir("job")
         let storage = profile.appendingPathComponent("Local Storage/leveldb")
         try FileManager.default.createDirectory(at: storage, withIntermediateDirectories: true)
-        try "durum".write(to: storage.appendingPathComponent("000001.log"), atomically: true, encoding: .utf8)
-        try "cerez".write(to: profile.appendingPathComponent("Cookies"), atomically: true, encoding: .utf8)
+        try "state".write(to: storage.appendingPathComponent("000001.log"), atomically: true, encoding: .utf8)
+        try "cookie".write(to: profile.appendingPathComponent("Cookies"), atomically: true, encoding: .utf8)
         _ = try ctl.addProject(name: "VPN", path: vpn.path)
 
         let (backups, synced) = try ctl.reimportProjects()
 
-        let backup = try XCTUnwrap(backups["is"])
+        let backup = try XCTUnwrap(backups["job"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: profile.appendingPathComponent("Local Storage").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: backup.appendingPathComponent("leveldb/000001.log").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: profile.appendingPathComponent("Cookies").path), "giriş korunmalı")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: profile.appendingPathComponent("Cookies").path), "sign-in should be preserved")
         XCTAssertEqual(synced.first?.error, nil)
-        XCTAssertEqual(cwds(try presets(profile)["acct-is"]), [vpn.path])
+        XCTAssertEqual(cwds(try presets(profile)["acct-job"]), [vpn.path])
     }
 
     func testResetDesktopStateRefusesWhenAnyInstanceIsRunning() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        _ = try ctl.new(name: "okul", workdir: nil)
-        for name in ["is", "okul"] {
+        _ = try ctl.new(name: "job", workdir: nil)
+        _ = try ctl.new(name: "school", workdir: nil)
+        for name in ["job", "school"] {
             try FileManager.default.createDirectory(
                 at: paths.profileDir(name).appendingPathComponent("Local Storage"), withIntermediateDirectories: true)
         }
-        launcher.runningPids[paths.profileDir("okul").path] = 7
+        launcher.runningPids[paths.profileDir("school").path] = 7
 
         XCTAssertThrowsError(try ctl.reimportProjects()) { error in
-            XCTAssertTrue("\(error)".contains("okul"), "\(error)")
+            XCTAssertTrue("\(error)".contains("school"), "\(error)")
         }
-        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.profileDir("is").appendingPathComponent("Local Storage").path),
-                      "biri çalışıyorsa hiçbirine dokunulmamalı")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: paths.profileDir("job").appendingPathComponent("Local Storage").path),
+                      "if any is running, none should be touched")
     }
 
     func testResetDesktopStateIsNoOpWithoutLocalStorage() throws {
-        _ = try ctl.new(name: "is", workdir: nil)
-        XCTAssertNil(try ctl.resetDesktopState(instance: "is"))
+        _ = try ctl.new(name: "job", workdir: nil)
+        XCTAssertNil(try ctl.resetDesktopState(instance: "job"))
     }
 }

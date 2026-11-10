@@ -1,13 +1,13 @@
 import Foundation
 
-/// Bir sağlık kontrolünün sonucu.
+/// Result of a health check.
 public enum CheckStatus: String, Equatable {
     case ok
     case warn
     case fail
 }
 
-/// Tek bir sağlık kontrolü.
+/// A single health check.
 public struct DoctorCheck: Equatable {
     public var name: String
     public var status: CheckStatus
@@ -20,7 +20,7 @@ public struct DoctorCheck: Equatable {
     }
 }
 
-/// Instance ve uygulama düzeyinde sağlık kontrolleri.
+/// Instance- and app-level health checks.
 public struct Doctor {
     public static let defaultDiskWarningBytes: Int64 = 5 * 1024 * 1024 * 1024
 
@@ -28,7 +28,7 @@ public struct Doctor {
     public let appPath: String
     public let diskWarningBytes: Int64
     public let fileManager: FileManager
-    /// Kurulu Claude sürümünü verir (testlerde enjekte edilebilir).
+    /// Returns the installed Claude version (can be injected in tests).
     public let versionProvider: () -> String?
 
     public init(
@@ -45,40 +45,40 @@ public struct Doctor {
         self.versionProvider = versionProvider ?? { ClaudeApp.version(appPath: appPath) }
     }
 
-    /// Uygulama düzeyi kontroller (Claude kurulu mu?).
+    /// App-level checks (is Claude installed?).
     public func appChecks(appPath: String? = nil) -> [DoctorCheck] {
         let path = appPath ?? self.appPath
         guard ClaudeApp.isInstalled(appPath: path) else {
-            return [DoctorCheck(name: "claude-app", status: .fail, detail: "Claude.app bulunamadı: \(path)")]
+            return [DoctorCheck(name: "claude-app", status: .fail, detail: "Claude.app not found: \(path)")]
         }
-        let version = ClaudeApp.version(appPath: path) ?? "sürüm bilinmiyor"
+        let version = ClaudeApp.version(appPath: path) ?? "unknown version"
         return [DoctorCheck(name: "claude-app", status: .ok, detail: "\(path) (\(version))")]
     }
 
-    /// Tek bir instance'ın kontrolleri.
+    /// Checks for a single instance.
     public func checks(for instance: Instance, state: InstanceState?) -> [DoctorCheck] {
         var checks: [DoctorCheck] = []
 
-        // Sürüm değişikliği: instance eski sürümle başlatılmış olabilir.
+        // Version change: the instance may have been started with an older version.
         if let recorded = state?.claudeVersion {
             if let current = versionProvider(), current != recorded {
                 checks.append(DoctorCheck(
                     name: "claude-version",
                     status: .warn,
-                    detail: "sürüm değişti: \(recorded) → \(current) (instance'ı yeniden başlat)"
+                    detail: "version changed: \(recorded) → \(current) (restart the instance)"
                 ))
             } else {
                 checks.append(DoctorCheck(
                     name: "claude-version",
                     status: .ok,
-                    detail: "sürüm: \(recorded)"
+                    detail: "version: \(recorded)"
                 ))
             }
         } else {
             checks.append(DoctorCheck(
                 name: "claude-version",
                 status: .ok,
-                detail: "instance henüz başlatılmamış"
+                detail: "instance hasn't been started yet"
             ))
         }
 
@@ -90,12 +90,12 @@ public struct Doctor {
             checks.append(DoctorCheck(
                 name: "profile-dir",
                 status: .fail,
-                detail: "profil dizini yok: \(profile.path)"
+                detail: "profile directory missing: \(profile.path)"
             ))
         }
 
-        // Çalışan bir instance'da SingletonLock normaldir; yalnızca instance
-        // durmamışken kilit varsa uyarı üret.
+        // SingletonLock is normal for a running instance; only warn when the
+        // lock exists while the instance is stopped.
         let lock = profile.appendingPathComponent("SingletonLock")
         let isRunning = state?.pid != nil && ProcessSignal.isAlive(state!.pid)
         if fileManager.fileExists(atPath: lock.path) {
@@ -103,17 +103,17 @@ public struct Doctor {
                 checks.append(DoctorCheck(
                     name: "profile-lock",
                     status: .ok,
-                    detail: "kilit var (instance çalışıyor — normal)"
+                    detail: "locked (instance is running — normal)"
                 ))
             } else {
                 checks.append(DoctorCheck(
                     name: "profile-lock",
                     status: .warn,
-                    detail: "bayat kilit — instance çalışmıyor ama profil kilitli"
+                    detail: "stale lock — instance is stopped but the profile is locked"
                 ))
             }
         } else {
-            checks.append(DoctorCheck(name: "profile-lock", status: .ok, detail: "kilit yok"))
+            checks.append(DoctorCheck(name: "profile-lock", status: .ok, detail: "not locked"))
         }
 
         let size = directorySize(profile)
@@ -128,10 +128,10 @@ public struct Doctor {
             checks.append(DoctorCheck(
                 name: "workdir",
                 status: exists ? .ok : .warn,
-                detail: exists ? workdir : "workdir bulunamadı: \(workdir)"
+                detail: exists ? workdir : "workdir not found: \(workdir)"
             ))
         } else {
-            checks.append(DoctorCheck(name: "workdir", status: .ok, detail: "atanmadı"))
+            checks.append(DoctorCheck(name: "workdir", status: .ok, detail: "not set"))
         }
 
         let cookies = profile.appendingPathComponent("Cookies")
@@ -139,13 +139,13 @@ public struct Doctor {
         checks.append(DoctorCheck(
             name: "signin",
             status: signedIn ? .ok : .warn,
-            detail: signedIn ? "oturum profili mevcut" : "giriş yapılmamış olabilir"
+            detail: signedIn ? "signed-in profile found" : "may not be signed in"
         ))
 
         return checks
     }
 
-    /// Dizinin toplam boyutu (mantıksal dosya boyutları toplamı).
+    /// Total size of the directory (sum of logical file sizes).
     public func directorySize(_ url: URL) -> Int64 {
         guard let enumerator = fileManager.enumerator(
             at: url,

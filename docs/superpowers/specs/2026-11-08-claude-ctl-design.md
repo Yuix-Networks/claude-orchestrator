@@ -1,62 +1,60 @@
-# claude-ctl — Claude Desktop çoklu instance yöneticisi (macOS)
+# claude-ctl — multi-instance manager for Claude Desktop (macOS)
 
-Tarih: 2026-11-08
-Durum: Onaylandı (tasarım Bölüm 1 + 2)
-Kapsam: v1 = CLI çekirdek + menü çubuğu ikonu
-
----
-
-## 1. Amaç
-
-`/Applications/Claude.app`'i aynı anda, birbirinden bağımsız N instance olarak çalıştıran
-bir macOS komut satırı aracı. Her instance'ın:
-
-- ayrı Electron profili (cookie, oturum, ayarlar, log),
-- ayrı Claude Code yapılandırması (`~/.claude` eşdeğeri),
-- ayrı giriş hesabı,
-- ayrı çalışma klasörü (workdir),
-- ayrı Dock tile'ı
-
-olması gerekiyor.
-
-Araç **orijinal `Claude.app` bundle'ine dokunmaz**: kopyalamaz, yamalamaz, yeniden imzalamaz.
-Bu sayede kod imzası, notarization, otomatik güncelleme ve macOS izinleri bozulmaz.
-
-Referans: https://parall.app (ticari, 10,99 USD) — bu araç onun CLI benzeri, Claude'a özel ve
-açık kaynak versiyonudur.
-
-### Kapsam dışı (v1)
-
-- `Claude.app` dışındaki uygulamalar (genel amaçlı multi-instance launcher değil).
-- Ayrı Dock ikonu / uygulama adı (aşağıdaki "Bilinen sınırlar"a bakın).
-- GUI (SwiftUI ayar uygulaması).
-- Parall'ın menü çubuğu ikonu, Web App Shortcut, HOME override modları.
+Date: 2026-11-08
+Status: Approved (design Section 1 + 2)
+Scope: v1 = CLI core + menu bar icon
 
 ---
 
-## 2. Doğrulanmış bulgular (ölçüm sonuçları)
+## 1. Goal
 
-Bu tasarımın dayandığı deneyler 2026-11-08 tarihinde gerçek `Claude.app` (4.4212.0) üzerinde
-yapıldı. Her madde kanıtıyla birlikte kayıtlıdır.
+A macOS command-line tool that runs `/Applications/Claude.app` as N independent instances
+at the same time. Each instance needs:
 
-| # | Bulgu | Kanıt |
+- its own Electron profile (cookies, session, settings, logs),
+- its own Claude Code config (the equivalent of `~/.claude`),
+- its own signed-in account,
+- its own working folder (workdir),
+- its own Dock tile.
+
+The tool **never touches the original `Claude.app` bundle**: it doesn't copy, patch or re-sign it.
+That way code signing, notarization, automatic updates and macOS permissions keep working.
+
+Reference: https://parall.app (commercial, USD 10.99) — this tool is a CLI-style, Claude-specific,
+open source take on it.
+
+### Out of scope (v1)
+
+- Apps other than `Claude.app` (this is not a general-purpose multi-instance launcher).
+- A separate Dock icon / app name (see "Known limitations" below).
+- A GUI (SwiftUI settings app).
+- Parall's menu bar icon, Web App Shortcut and HOME override modes.
+
+---
+
+## 2. Verified findings (measurement results)
+
+The experiments behind this design were run on 2026-11-08 against a real `Claude.app` (4.4212.0).
+Each item is recorded with its evidence.
+
+| # | Finding | Evidence |
 |---|---|---|
-| F1 | `--user-data-dir=<yol>` Electron profilini (Cookies, Local Storage, IndexedDB, Cache) tam olarak taşır | profilde `Cookies`, `Local Storage`, `IndexedDB` oluştu |
-| F2 | `CLAUDE_CONFIG_DIR=<yol>` Claude Code yapılandırmasını (`~/.claude`, `.claude.json`, oturumlar) ayırır | `claude-code-home/` altında `sessions/`, `.claude.json` oluştu |
-| F3 | `CLAUDE_USER_DATA_DIR` **imzalı build'de yok sayılır** | `~/Library/Logs/Claude/main.log`: `[user-data-dir] CLAUDE_USER_DATA_DIR is set and signed builds ignore it (path kind: local); this launch uses the default data folder` |
-| F4 | `open -n` her instance için ayrı bir Dock tile'ı açar | `lsappinfo` → 3 ayrı ASN; Dock ekran görüntüsünde 3 Claude ikonu yan yana |
-| F5 | Orijinal bundle'e dokunulmadığı için imza/updater korunur | `codesign -dv` → `Developer ID Application: Anthropic PBC`, notarize; araç bundle'e yazmaz |
-| F6 | Claude.app sandbox değil; `Contents/MacOS/Claude` yalnızca 54 KB, `Frameworks` 288 MB, `app.asar` 55 MB | `codesign -d --entitlements -` → `app-sandbox` yok |
-| F7 | Electron klonu (stub) yolu macOS güvenlik duvarlarına çarpıyor: (a) library validation — "mapping process and mapped file have different Team IDs"; (b) `disable-library-validation` entitlement'i sonrası "Unable to find helper app" (helper adı `CFBundleName`'den türetiliyor); (c) `CFBundleName` "Claude" yapılınca sandbox extension hatası ve süreç ölümü | Doğrudan deneme, loglar |
-| F8 | Native launcher + `execve` kimliği geri döndürüyor: process Claude.app altında yeniden kaydediliyor | `lsappinfo` → launcher'ın bundle ID'si yok, Claude'ın bundle path'i var |
-| F9 | `claude://` deep link tek handler'a gider; `disableDeepLinkRegistration` managed config anahtarı mevcut | asar içinde `Disable claude:// deep-link handling` tanımı |
-| F10 | Workdir profilde saklanıyor: `claude_desktop_config.json` → `preferences.localAgentModeTrustedFolders` ve `ccd-session-presets.json` → `byAccount[hesapUuid].presets[].target.cwd` | Profil dosyaları okundu |
-| F11 | Oturum `safeStorage` ile şifrelenip profil içinde saklanıyor (Keychain yalnızca şifreleme anahtarı) → profil başına ayrı hesap mümkün | asar içinde 138 `safeStorage` referansı |
-| F12 | Electron stub'unun `CFBundleName`'i helper adlarını belirliyor (`Claude Helper.app`) | "Unable to find helper app" hatası |
+| F1 | `--user-data-dir=<path>` fully relocates the Electron profile (Cookies, Local Storage, IndexedDB, Cache) | `Cookies`, `Local Storage`, `IndexedDB` were created in the profile |
+| F2 | `CLAUDE_CONFIG_DIR=<path>` separates the Claude Code config (`~/.claude`, `.claude.json`, sessions) | `sessions/`, `.claude.json` were created under `claude-code-home/` |
+| F3 | `CLAUDE_USER_DATA_DIR` **is ignored in signed builds** | `~/Library/Logs/Claude/main.log`: `[user-data-dir] CLAUDE_USER_DATA_DIR is set and signed builds ignore it (path kind: local); this launch uses the default data folder` |
+| F4 | `open -n` opens a separate Dock tile for each instance | `lsappinfo` → 3 separate ASNs; Dock screenshot shows 3 Claude icons side by side |
+| F5 | Since the original bundle is not touched, the signature/updater are preserved | `codesign -dv` → `Developer ID Application: Anthropic PBC`, notarized; the tool never writes to the bundle |
+| F6 | Claude.app is not sandboxed; `Contents/MacOS/Claude` is only 54 KB, `Frameworks` 288 MB, `app.asar` 55 MB | `codesign -d --entitlements -` → no `app-sandbox` |
+| F7 | The Electron clone (stub) approach runs into macOS security walls: (a) library validation — "mapping process and mapped file have different Team IDs"; (b) after the `disable-library-validation` entitlement, "Unable to find helper app" (the helper name is derived from `CFBundleName`); (c) with `CFBundleName` set to "Claude", a sandbox extension error and the process dies | Direct attempt, logs |
+| F8 | Native launcher + `execve` reverts the identity: the process is re-registered under Claude.app | `lsappinfo` → no launcher bundle ID, Claude's bundle path is shown |
+| F9 | The `claude://` deep link goes to a single handler; a `disableDeepLinkRegistration` managed config key exists | `Disable claude:// deep-link handling` definition inside the asar |
+| F10 | The workdir is stored in the profile: `claude_desktop_config.json` → `preferences.localAgentModeTrustedFolders` and `ccd-session-presets.json` → `byAccount[accountUuid].presets[].target.cwd` | Profile files were read |
+| F11 | The session is encrypted with `safeStorage` and stored inside the profile (Keychain only holds the encryption key) → a separate account per profile is possible | 138 `safeStorage` references inside the asar |
+| F12 | The Electron stub's `CFBundleName` determines the helper names (`Claude Helper.app`) | "Unable to find helper app" error |
 
-### Uygulama seçimi
+### Chosen approach
 
-F1 + F2 birlikte, doğrulanmış ve uygulanabilir tek ayrıştırma mekanizmasını veriyor:
+F1 + F2 together give the only verified, workable isolation mechanism:
 
 ```
 open -n -a /Applications/Claude.app \
@@ -64,55 +62,55 @@ open -n -a /Applications/Claude.app \
      --env  CLAUDE_CONFIG_DIR=<codeDir>
 ```
 
-`open --env` macOS 13 (Ventura) ve sonrasında mevcut → **minimum macOS 13**.
+`open --env` is available in macOS 13 (Ventura) and later → **minimum macOS 13**.
 
 ---
 
-## 3. Mimari
+## 3. Architecture
 
-Tek Swift binary, iki mod.
+One Swift binary, two modes.
 
 ```
-claude-ctl              # CLI modu (varsayılan)
-claude-ctl agent        # menü çubuğu ikonları
+claude-ctl              # CLI mode (default)
+claude-ctl agent        # menu bar icons
 ```
 
-### Bileşenler
+### Components
 
-| Bileşen | Sorumluluk |
+| Component | Responsibility |
 |---|---|
-| `Command` katmanı | Alt komut ayrıştırma, `--json` çıktı, exit code'ları |
-| `InstanceStore` | `config.json` okuma/yazma, instance CRUD, path üretimi |
-| `Launcher` | `open -n` çağrısı, PID yakalama, profil kilidi kontrolü |
-| `ProfileSeeder` | Workdir → güvenli klasörler + session preset yazımı (idempotent merge) |
-| `Agent` | `NSStatusItem` üretimi, instance durumu izleme, aksiyon menüleri |
-| `Doctor` | Sürüm uyumu, kilit, izin, disk kontrolleri |
+| `Command` layer | Subcommand parsing, `--json` output, exit codes |
+| `InstanceStore` | Reading/writing `config.json`, instance CRUD, path generation |
+| `Launcher` | The `open -n` call, capturing the PID, profile lock check |
+| `ProfileSeeder` | Workdir → trusted folders + session preset writes (idempotent merge) |
+| `Agent` | Creating `NSStatusItem`s, watching instance state, action menus |
+| `Doctor` | Version compatibility, lock, permission and disk checks |
 
-### Modüller arası bağımlılık yönü
+### Dependency direction between modules
 
-`Command` → (`InstanceStore`, `Launcher`, `ProfileSeeder`, `Doctor`) ve
+`Command` → (`InstanceStore`, `Launcher`, `ProfileSeeder`, `Doctor`) and
 `Agent` → (`InstanceStore` + `Launcher`).
-Hiçbir modül diğerini doğrudan çağırmaz; hepsi `InstanceStore` üzerinden veriye erişir.
+No module calls another directly; they all access data through `InstanceStore`.
 
 ---
 
-## 4. Veri yerleşimi
+## 4. Data layout
 
-Tüm veriler `~/Library/Application Support/claude-ctl/` altında:
+All data lives under `~/Library/Application Support/claude-ctl/`:
 
 ```
 ~/Library/Application Support/claude-ctl/
-├── config.json                       # instance tanımları
+├── config.json                       # instance definitions
 ├── state/
-│   └── agent.pid                     # agent singleton kilidi
+│   └── agent.pid                     # agent singleton lock
 └── instances/
     └── <name>/
-        ├── profile/                  # Electron profili  (--user-data-dir)
-        ├── claude-code/              # ayrı ~/.claude    (CLAUDE_CONFIG_DIR)
-        └── state.json                # pid, startedAt, son bilinen sürüm, hesap durumu
+        ├── profile/                  # Electron profile  (--user-data-dir)
+        ├── claude-code/              # separate ~/.claude (CLAUDE_CONFIG_DIR)
+        └── state.json                # pid, startedAt, last known version, account state
 ```
 
-### `config.json` şeması
+### `config.json` schema
 
 ```json
 {
@@ -129,59 +127,59 @@ Tüm veriler `~/Library/Application Support/claude-ctl/` altında:
 }
 ```
 
-`profile` ve `claude-code` yolları türetilir (config'de saklanmaz), böylece ana dizin
-taşınırsa instance'lar bozulmaz.
+The `profile` and `claude-code` paths are derived (not stored in the config), so instances
+don't break if the root directory moves.
 
 ---
 
-## 5. Komut yüzeyi
+## 5. Command surface
 
-| Komut | İşlev | Notlar |
+| Command | What it does | Notes |
 |---|---|---|
-| `new <ad> --workdir <yol>` | Instance oluşturur, profili tohumlar | Var olan ad → hata |
-| `start <ad>` | Instance'ı başlatır | Çalışıyorsa no-op; `--folder <yol>` ile tek seferlik klasör argümanı (§7 yedek yol) |
-| `stop <ad>` | Instance'ı durdurur | Önce nazik (SIGTERM), sonra zor |
-| `list` | Tablo: ad, durum, pid, workdir, profil boyutu | `--json` destekler |
-| `status <ad>` | Detay: yollar, son sürüm, hesap durumu, son log satırı | `--json` destekler |
-| `logs <ad>` | Claude loglarını yazdırır | `-f/--follow`, `--lines N`. Loglar **tüm instance'lar arasında paylaşılır** (`~/Library/Logs/Claude/main.log`); çıktı instance'ın başlangıç zamanına göre filtrelenir |
-| `signin <ad>` | Giriş rehberi + `claude://` handler yönlendirmesi | Bkz. §9 |
-| `open <ad>` | Workdir / profil klasörünü Finder'da aç | `--target workdir\|profile` |
-| `agent --install` | Menü çubuğu ikonunu LaunchAgent olarak kurar | `--uninstall` de var |
-| `doctor [<ad>]` | Sağlık kontrolü | Tüm instance'lar veya tek instance |
+| `new <name> --workdir <path>` | Creates an instance and seeds the profile | Existing name → error |
+| `start <name>` | Starts the instance | No-op if running; `--folder <path>` passes a one-off folder argument (§7 fallback) |
+| `stop <name>` | Stops the instance | Gentle first (SIGTERM), then forced |
+| `list` | Table: name, state, pid, workdir, profile size | Supports `--json` |
+| `status <name>` | Details: paths, last version, account state, last log line | Supports `--json` |
+| `logs <name>` | Prints Claude logs | `-f/--follow`, `--lines N`. Logs are **shared across all instances** (`~/Library/Logs/Claude/main.log`); output is filtered by the instance's start time |
+| `signin <name>` | Sign-in guide + `claude://` handler routing | See §9 |
+| `open <name>` | Opens the workdir / profile folder in Finder | `--target workdir\|profile` |
+| `agent --install` | Installs the menu bar icon as a LaunchAgent | `--uninstall` too |
+| `doctor [<name>]` | Health check | All instances or a single one |
 
-Çıktı sözleşmesi: exit code `0` başarılı, `1` çalışma hatası, `2` kullanım hatası.
-Tüm komutlar `--json` destekler; hata mesajları eyleme dönük olur ("şunu çalıştır: …").
+Output contract: exit code `0` success, `1` runtime error, `2` usage error.
+Every command supports `--json`; error messages are actionable ("run this: …").
 
 ---
 
-## 6. Başlatma akışı
+## 6. Start flow
 
 ```
-claude-ctl start <ad>
- 1. Instance var mı?          → yoksa hata (2)
- 2. Çalışıyor mu?             → PID canlıysa no-op (0)
- 3. Profil kilidi var mı?     → SingletonLock doluysa: "başka instance kullanıyor" (1)
- 4. Workdir hâlâ geçerli mi?  → yoksa uyar, seed'i atla
- 5. Profili tohumla           → idempotent merge (bkz. §7)
+claude-ctl start <name>
+ 1. Does the instance exist?  → if not, error (2)
+ 2. Is it running?            → if the PID is alive, no-op (0)
+ 3. Is the profile locked?    → if SingletonLock exists: "used by another instance" (1)
+ 4. Is the workdir still valid? → if not, warn and skip seeding
+ 5. Seed the profile          → idempotent merge (see §7)
  6. open -n -a ... --args --user-data-dir --env
- 7. PID'yi bekle (max 10 sn)  → bulunamazsa hata (1)
- 8. state.json güncelle       → pid, startedAt, claudeVersion
- 9. Agent menüsü güncellenir  → agent 5 saniyede bir yoklama yapar (anlık bildirim yok)
+ 7. Wait for the PID (max 10 s) → if not found, error (1)
+ 8. Update state.json         → pid, startedAt, claudeVersion
+ 9. Agent menu is updated     → the agent polls every 5 seconds (no instant notification)
 ```
 
-`stop`: SIGTERM → 5 sn bekle → hâlâ yaşıyorsa SIGKILL. `state.json` temizlenir.
+`stop`: SIGTERM → wait 5 s → SIGKILL if still alive. `state.json` is cleared.
 
 ---
 
-## 7. Workdir tohumlama (profil seeding)
+## 7. Workdir seeding (profile seeding)
 
-Claude Desktop'ta Code sekmesinin klasörü profilin içinde tutulur. Instance oluşturulurken
-ve her başlatmadan önce (instance kapalıyken) iki dosya yazılır:
+In Claude Desktop, the Code tab's folder is kept inside the profile. When the instance is created
+and before every start (while the instance is closed), two files are written:
 
 **a) `profile/claude_desktop_config.json`**
 
 ```jsonc
-// preferences.localAgentModeTrustedFolders dizisine workdir eklenir
+// the workdir is added to the preferences.localAgentModeTrustedFolders array
 "preferences": {
   "localAgentModeTrustedFolders": ["/Users/serdar/workspace/nameocean"]
 }
@@ -190,7 +188,7 @@ ve her başlatmadan önce (instance kapalıyken) iki dosya yazılır:
 **b) `profile/ccd-session-presets.json`**
 
 ```jsonc
-// byAccount[<accountUuid>].presets içine workdir için preset eklenir
+// a preset for the workdir is added to byAccount[<accountUuid>].presets
 {
   "byAccount": {
     "<accountUuid>": {
@@ -208,112 +206,112 @@ ve her başlatmadan önce (instance kapalıyken) iki dosya yazılır:
 }
 ```
 
-`<accountUuid>` profil dosyalarından bulunur (`ccd-session-presets.json` anahtarları,
-`bridge-state.json`); hesap henüz yoksa (ilk girişten önce) preset yazılmaz, güvenli klasör
-yazılır ve preset ilk `start` sonrası (hesap oluşunca) tamamlanır.
+`<accountUuid>` is found from the profile files (the `ccd-session-presets.json` keys,
+`bridge-state.json`); if there is no account yet (before the first sign in), no preset is written, the trusted folder
+is written, and the preset is completed after the first `start` (once the account exists).
 
-**Idempotency:** her iki merge de "yol zaten varsa ekleme" kuralıyla çalışır; tohumlama N kez
-çalıştırılsa da sonuç aynıdır. Mevcut dosya içeriği korunur, yalnızca ilgili alanlar
-güncellenir (JSON'u baştan yazmadan, hedef alanı merge ederek).
+**Idempotency:** both merges follow the rule "don't add if the path already exists"; running
+the seeding N times gives the same result. Existing file content is preserved, only the relevant fields
+are updated (by merging the target field, not rewriting the JSON from scratch).
 
-**Alternatif (yedek yol):** `claude-ctl start <ad> --folder <yol>` → klasör uygulama argümanı
-olarak geçirilir. Kalıcı ayar yazmaz; profil tohumlaması başarısız olursa bu kullanılır.
-
----
-
-## 8. Menü çubuğu agent'ı
-
-Tek process (`claude-ctl agent`), tüm instance'lar için birer `NSStatusItem`.
-
-- İkon: Claude ikonu + instance rozeti (sayı veya kısa ad). Template image olarak işlenir.
-- Menü: **Öne getir** / **Durdur** / **Workdir'yi aç** / **Profil klasörünü aç** / **Loglar** /
-  **Sign-in yardımı**.
-- "Öne getir": `state.json`'daki PID üzerinden `NSRunningApplication.activate(options:
-  [.activateAllWindows])`.
-- Durum güncellemesi: 5 saniyede bir yoklama ile `config.json` ve PID canlılığı kontrol edilir,
-  menüler yenilenir (anlık bildirim/FSEvents kullanılmaz).
-- Singleton: `state/agent.pid` dosyası; içindeki pid canlıysa ikinci agent başlamaz.
-- Kurulum: `claude-ctl agent --install` → `~/Library/LaunchAgents/com.claude-ctl.agent.plist`
-  (RunAtLoad + KeepAlive) yazılır.
-
-v1'de menüde "Yeni pencere" yoktur: Electron uygulamasına AppleScript ile yeni pencere
-açtırmak güvenilir değil; "Öne getir" yeterlidir.
+**Alternative (fallback):** `claude-ctl start <name> --folder <path>` → the folder is passed as an app
+argument. It writes no persistent settings; it's used if profile seeding fails.
 
 ---
 
-## 9. Edge case'ler ve kararlar
+## 8. Menu bar agent
 
-| Durum | Karar |
+One process (`claude-ctl agent`), one `NSStatusItem` per instance.
+
+- Icon: the Claude icon + an instance badge (a number or a short name). Rendered as a template image.
+- Menu: **Bring to front** / **Stop** / **Open workdir** / **Open profile folder** / **Logs** /
+  **Sign-in help**.
+- "Bring to front": `NSRunningApplication.activate(options: [.activateAllWindows])` via the PID
+  in `state.json`.
+- State updates: `config.json` and PID liveness are checked by polling every 5 seconds and
+  the menus are refreshed (no instant notifications/FSEvents).
+- Singleton: the `state/agent.pid` file; if the pid in it is alive, a second agent doesn't start.
+- Install: `claude-ctl agent --install` → writes `~/Library/LaunchAgents/com.claude-ctl.agent.plist`
+  (RunAtLoad + KeepAlive).
+
+v1 has no "New window" in the menu: making an Electron app open a new window through AppleScript
+is not reliable; "Bring to front" is enough.
+
+---
+
+## 9. Edge cases and decisions
+
+| Situation | Decision |
 |---|---|
-| Log dosyaları paylaşılıyor | Claude logları `~/Library/Logs/Claude/` altına yazar ve bu yol `--user-data-dir`'dan etkilenmez (`app.setPath("logs", …)` yalnızca yok sayılan `CLAUDE_USER_DATA_DIR` için çalışır). `logs` komutu instance'ın `startedAt` zamanına göre filtreler; kesin ayrım yoktur |
-| Aynı profil iki instance'da | Chromium `SingletonLock` → ikinci açılış reddedilir. `start` kilidi önceden kontrol eder, çökmez |
-| Claude güncellemesi | Bundle'e dokunulmaz → sonraki açılışta yeni sürüm. `doctor` sürüm değişimini fark eder, profili yeniden tohumlar |
-| Ölü instance / bayat state | `list` PID canlılığını doğrular; bayat `state.json` temizlenir |
-| `claude://` giriş yönlendirmesi | `signin` hedef instance'ı yeniden başlatır (handler en son kaydeden olur) ve diğer instance'ların kapalı olmasını ister. Hangi instance'ın handler olduğu uygulama sırasında ölçülür ve buna göre kesinleştirilir |
-| Disk | Instance başına ~500 MB (kendi Claude Code CLI kopyası) + profil büyümesi. `list` boyut gösterir, `doctor` eşiği aşınca uyarır |
-| macOS izinleri (kamera/mikrofon) | Aynı bundle ID → orijinal app'in izinleri paylaşılır; instance başına yeni izin istemi çıkmaz |
-| İlk açılış yavaş | Her instance kendi Claude Code CLI'sini indirir (ağ gerekir) |
-| Durum dosyası bozulursa | `config.json` geçerli JSON değilse `start`/`list` açıklayıcı hata verir, dosyayı silmez/üzerine yazmaz |
-| Instance adı normalizasyonu | `[a-z0-9-]`, 1-32 karakter; `..` ve `/` reddedilir (path traversal) |
-| Workdir silinmişse | `start` uyarır, seed'i atlar, instance yine açılır |
+| Log files are shared | Claude writes logs under `~/Library/Logs/Claude/` and that path is not affected by `--user-data-dir` (`app.setPath("logs", …)` only works for the ignored `CLAUDE_USER_DATA_DIR`). The `logs` command filters by the instance's `startedAt` time; there is no exact separation |
+| Same profile in two instances | Chromium `SingletonLock` → the second launch is refused. `start` checks the lock beforehand and doesn't crash |
+| Claude update | The bundle is not touched → the new version on the next launch. `doctor` notices the version change and re-seeds the profile |
+| Dead instance / stale state | `list` checks PID liveness; stale `state.json` is cleaned up |
+| `claude://` sign-in routing | `signin` restarts the target instance (the handler is whichever registered last) and asks for the other instances to be closed. Which instance is the handler will be measured during implementation and finalized accordingly |
+| Disk | ~500 MB per instance (its own copy of the Claude Code CLI) + profile growth. `list` shows the size, `doctor` warns past a threshold |
+| macOS permissions (camera/microphone) | Same bundle ID → the original app's permissions are shared; no new permission prompt per instance |
+| Slow first launch | Each instance downloads its own Claude Code CLI (needs network) |
+| Corrupt state file | If `config.json` is not valid JSON, `start`/`list` give a descriptive error and don't delete or overwrite the file |
+| Instance name normalization | `[a-z0-9-]`, 1-32 characters; `..` and `/` are rejected (path traversal) |
+| Workdir deleted | `start` warns, skips seeding, and the instance still opens |
 
 ---
 
-## 10. Bilinen sınırlar
+## 10. Known limitations
 
-1. **Ayrı Dock ikonu yok.** Tüm tile'lar Claude ikonunu gösterir (F4). Instance'ları ayırmak için
-   menü çubuğu ikonu + pencere başlıkları kullanılır. Parall'ın ayrı Dock ikonu, hedef app'in
-   bundle kimliğini değiştirmeyi gerektirir; bu da Electron klonunun güvenlik duvarlarına
-   çarptığı yoldur (F7, F8).
-2. **Uygulama menüsü adı "Claude" kalır** — Electron `productName`'i bundle'e gömülü.
-3. **Ayrı hesap çalışması** profil başına `safeStorage` blob'larına dayanır (F11) ve ilk
-   uygulama sırasında doğrulanacaktır.
-4. `claude://` handler tek instance'a gider (§9).
-5. **Log dosyaları paylaşılır** (`~/Library/Logs/Claude/`); instance başına ayrı log yok (§9).
-6. Araç yalnızca macOS 13+ ve `Claude.app` `PATH`/bilinen konumlarda ise çalışır.
-
----
-
-## 11. Test stratejisi
-
-**1. Birim testleri (XCTest)**
-- `InstanceStore`: config okuma/yazma, ad normalizasyonu, path traversal reddi, varsayılan config.
-- `ProfileSeeder`: JSON merge idempotency'si (aynı seed 2× → aynı çıktı), mevcut alanların
-  korunması, eksik dosya durumu, hesap bulunamadığında davranış.
-- `Command`: alt komut ayrıştırma, `--json` çıktı biçimi, exit code'ları.
-- `Launcher`: komut üretimi (argüman dizisi doğru sırada, yollar boşluk içeriyorsa kaçışlı).
-
-**2. Entegrasyon testleri** (macOS, Claude kurulu)
-- `open -n` ile iki instance başlatılır → profiller farklı dizinlerde ve birbirinden bağımsız
-  (biri diğerinde `Cookies` görmemeli).
-- `--user-data-dir` gerçekten profile yazıyor mu (dosya var mı).
-- Aynı profili iki kez açma → SingletonLock davranışı doğru raporlanıyor.
-- CI'da Claude kurulu değilse skip.
-
-**3. E2E smoke (manuel, macOS)**
-`new` → `start` → iki instance paralel → workdir tohumlama doğrulama (Code sekmesinde doğru proje)
-→ menü çubuğu ikonları → `stop` → profil dosyaları duruyor.
+1. **No separate Dock icon.** All tiles show the Claude icon (F4). To tell instances apart,
+   the menu bar icon + window titles are used. Parall's separate Dock icon needs the target app's
+   bundle identity to change; that is exactly the path where the Electron clone hits the security walls
+   (F7, F8).
+2. **The app menu name stays "Claude"** — Electron's `productName` is baked into the bundle.
+3. **Separate accounts** rely on per-profile `safeStorage` blobs (F11) and will be verified
+   during the initial implementation.
+4. The `claude://` handler goes to a single instance (§9).
+5. **Log files are shared** (`~/Library/Logs/Claude/`); no per-instance logs (§9).
+6. The tool only works on macOS 13+ and when `Claude.app` is on the `PATH`/in a known location.
 
 ---
 
-## 12. Dağıtım
+## 11. Test strategy
 
-- GitHub Releases: derlenmiş tek binary (universal: arm64 + x86_64).
-- Homebrew tap: `brew install serdar/tap/claude-ctl` (kendi tap repo'su).
-- Kurulum yolu: `/usr/local/bin` veya `/opt/homebrew/bin` (Homebrew yönetir).
-- Lisans: MIT.
+**1. Unit tests (XCTest)**
+- `InstanceStore`: config read/write, name normalization, path traversal rejection, default config.
+- `ProfileSeeder`: JSON merge idempotency (same seed 2× → same output), preservation of existing
+  fields, missing file case, behavior when no account is found.
+- `Command`: subcommand parsing, `--json` output format, exit codes.
+- `Launcher`: command generation (argument array in the right order, paths with spaces escaped).
+
+**2. Integration tests** (macOS, Claude installed)
+- Start two instances with `open -n` → the profiles are in different directories and independent
+  of each other (neither should see the other's `Cookies`).
+- Does `--user-data-dir` really write to the profile (does the file exist)?
+- Opening the same profile twice → SingletonLock behavior is reported correctly.
+- Skipped in CI if Claude is not installed.
+
+**3. E2E smoke (manual, macOS)**
+`new` → `start` → two instances in parallel → verify workdir seeding (right project in the Code tab)
+→ menu bar icons → `stop` → profile files remain.
 
 ---
 
-## 13. Uygulama sırasında ölçülecek açık noktalar
+## 12. Distribution
 
-1. `claude://` deep link hangi instance'a gidiyor? (en son başlatılan mı, öne alınan mı?)
-2. `open --env` + `--args` birlikte, her macOS 13 sürümünde aynı mı?
-3. `open -n` ile açılan instance'ın PID'ini güvenilir almak: `open` PID döndürmüyor → süreç
-   `--user-data-dir=<benzersiz yol>` argümanıyla eşleştirilerek bulunacak.
-4. Profile tohumlama `selected-folder` (Local Storage/leveldb) yerine yeterli mi, yoksa
-   `claude_desktop_config.json` + `ccd-session-presets.json` yeterli mi? (F10 doğruladı; ilk
-   smoke testinde teyit edilecek.)
-5. `localAgentModeTrustedFolders` değişikliği uygulamada "güvenilir klasör" onayı gerektiriyor mu?
-6. İki farklı Anthropic hesabıyla iki instance gerçekten ayrı oturum tutuyor mu (F11 varsayımının
-   doğrulaması)?
+- GitHub Releases: a single compiled binary (universal: arm64 + x86_64).
+- Homebrew tap: `brew install serdar/tap/claude-ctl` (its own tap repo).
+- Install path: `/usr/local/bin` or `/opt/homebrew/bin` (managed by Homebrew).
+- License: MIT.
+
+---
+
+## 13. Open questions to measure during implementation
+
+1. Which instance does the `claude://` deep link go to? (the most recently started, or the frontmost?)
+2. Do `open --env` + `--args` together behave the same on every macOS 13 release?
+3. Reliably getting the PID of an instance opened with `open -n`: `open` doesn't return a PID → the process
+   will be found by matching the `--user-data-dir=<unique path>` argument.
+4. Is profile seeding enough instead of `selected-folder` (Local Storage/leveldb), i.e. are
+   `claude_desktop_config.json` + `ccd-session-presets.json` enough? (F10 confirmed it; to be
+   double-checked in the first smoke test.)
+5. Does changing `localAgentModeTrustedFolders` require a "trusted folder" approval in the app?
+6. Do two instances with two different Anthropic accounts really keep separate sessions (verifying the
+   F11 assumption)?

@@ -3,18 +3,18 @@ import Darwin
 import OrchestratorCore
 import Foundation
 
-/// Menü çubuğu ikonlarını yönetir.
+/// Manages the menu bar icons.
 ///
-/// Her çalışan/tanımlı instance için bir `NSStatusItem` oluşturur; ikonu
-/// Claude ikonudur, etiketi instance adının kısa biçimidir.
+/// Creates one `NSStatusItem` per defined instance; its icon is the Claude
+/// icon and its label is a short form of the instance name.
 public final class StatusItemController {
     private let model: AgentModel
     private let paths: Paths
     private var statusItems: [String: NSStatusItem] = [:]
-    /// Menüsü en son kurulan durum; değişmediyse menü yeniden kurulmaz.
+    /// Status each menu was last built for; the menu is not rebuilt if it hasn't changed.
     private var renderedStatuses: [String: InstanceStatus] = [:]
     private var timer: Timer?
-    /// Singleton kilidini tutan dosya tanımlayıcısı (süreç ölünce çekirdek bırakır).
+    /// File descriptor holding the singleton lock (the kernel releases it when the process dies).
     private var lockDescriptor: Int32 = -1
 
     public init(model: AgentModel, paths: Paths = .default) {
@@ -22,7 +22,7 @@ public final class StatusItemController {
         self.paths = paths
     }
 
-    /// Agent'ı başlatır. Başka bir agent çalışıyorsa `false` döner.
+    /// Starts the agent. Returns `false` if another agent is already running.
     @discardableResult
     public func start() -> Bool {
         guard acquireSingleton() else { return false }
@@ -34,11 +34,11 @@ public final class StatusItemController {
         return true
     }
 
-    /// Singleton kilidi: `agent.lock` üzerinde özel `flock`.
+    /// Singleton lock: an exclusive `flock` on `agent.lock`.
     ///
-    /// Kilit atomik olarak alınır (TOCTOU yarışı yok) ve süreç öldüğünde
-    /// çekirdek tarafından bırakılır; bayat bir pid dosyası agent'ı kalıcı
-    /// olarak "zaten çalışıyor" durumuna sokamaz. Pid yalnızca bilgi amaçlı yazılır.
+    /// The lock is taken atomically (no TOCTOU race) and the kernel releases it
+    /// when the process dies, so a stale pid file can never leave the agent stuck
+    /// as "already running". The pid is written for information only.
     public func acquireSingleton() -> Bool {
         if lockDescriptor >= 0 { return true }
         try? FileManager.default.createDirectory(at: paths.stateDirectory, withIntermediateDirectories: true)
@@ -57,7 +57,7 @@ public final class StatusItemController {
         return true
     }
 
-    /// Kilidi bırakır (testler ve düzgün kapanış için).
+    /// Releases the lock (for tests and clean shutdown).
     public func releaseSingleton() {
         guard lockDescriptor >= 0 else { return }
         flock(lockDescriptor, LOCK_UN)
@@ -65,12 +65,12 @@ public final class StatusItemController {
         lockDescriptor = -1
     }
 
-    /// Durumları yeniler ve menü çubuğu ikonlarını günceller.
+    /// Refreshes the statuses and updates the menu bar icons.
     public func refresh() {
         let statuses = model.refresh()
         let names = Set(statuses.map(\.name))
 
-        // Anahtarların kopyası üzerinde dönülür: sözlük döngü içinde değişiyor.
+        // Iterate over a copy of the keys: the dictionary changes inside the loop.
         for name in Array(statusItems.keys) where !names.contains(name) {
             if let item = statusItems.removeValue(forKey: name) {
                 NSStatusBar.system.removeStatusItem(item)
@@ -79,7 +79,7 @@ public final class StatusItemController {
         }
 
         for status in statuses {
-            // Durum değişmediyse menüyü yeniden kurma (gereksiz titreme olmasın).
+            // Don't rebuild the menu if the status hasn't changed (avoids flicker).
             if statusItems[status.name] != nil, renderedStatuses[status.name] == status { continue }
             let item = statusItems[status.name] ?? makeStatusItem()
             statusItems[status.name] = item
@@ -88,7 +88,7 @@ public final class StatusItemController {
             let badge = status.name.count > 2 ? String(status.name.suffix(2)) : status.name
             item.button?.title = status.isRunning ? badge : ""
             item.button?.image = AppKitSupport.claudeIcon()
-            item.button?.toolTip = "\(status.name) — \(status.isRunning ? "çalışıyor" : "durdu")"
+            item.button?.toolTip = "\(status.name) — \(status.isRunning ? "running" : "stopped")"
             item.menu = makeMenu(for: status)
         }
     }
@@ -118,7 +118,7 @@ public final class StatusItemController {
     }
 }
 
-/// Menü öğesinin taşıdığı eylem bilgisi.
+/// The action info carried by a menu item.
 private final class ActionBox: NSObject {
     let action: AgentAction
     let name: String

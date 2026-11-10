@@ -1,12 +1,12 @@
 import Foundation
 
-/// Çalışan bir instance'ın durumu.
+/// State of a running instance.
 public struct InstanceState: Codable, Equatable {
-    /// Claude ana sürecinin pid'i.
+    /// Pid of the main Claude process.
     public var pid: Int32
-    /// Instance'ın başlatıldığı an.
+    /// When the instance was started.
     public var startedAt: Date
-    /// Başlatma anında kurulu olan Claude sürümü.
+    /// Claude version installed at launch time.
     public var claudeVersion: String?
 
     public init(pid: Int32, startedAt: Date = Date(), claudeVersion: String? = nil) {

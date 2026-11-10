@@ -1,10 +1,10 @@
 import OrchestratorCore
 import Foundation
 
-/// Login item (LaunchAgent) kurulumu ve kaldırılması.
+/// Installs and removes the login item (LaunchAgent).
 public struct LaunchAgentInstaller {
-    /// Eski adıyla kalıyor: v0.1.0 ile kurulmuş login item'lar yeniden
-    /// kurulumda aynı etiketle değiştirilir (iki agent birden çalışmaz).
+    /// Keeps the old name on purpose: a login item installed by v0.1.0 is
+    /// replaced under the same label on reinstall, so two agents never run at once.
     public static let defaultLabel = "com.claude-ctl.agent"
 
     public let label: String
@@ -18,16 +18,16 @@ public struct LaunchAgentInstaller {
             .appendingPathComponent("Library/LaunchAgents/\(label).plist")
     }
 
-    /// LaunchAgent plist'ini yazar ve yükler.
+    /// Writes and loads the LaunchAgent plist.
     @discardableResult
     public func install(executablePath: String) throws -> URL {
         let plist: [String: Any] = [
             "Label": label,
             "ProgramArguments": [executablePath, "agent"],
             "RunAtLoad": true,
-            // Yalnızca beklenmedik çıkışta yeniden başlat: ikinci örnek "zaten
-            // çalışıyor" deyip 0 ile çıkar; `KeepAlive: true` bunu sonsuz
-            // yeniden başlatma döngüsüne çevirirdi.
+            // Restart only on an unexpected exit: a second copy reports "already
+            // running" and exits with 0; `KeepAlive: true` would turn that into an
+            // endless restart loop.
             "KeepAlive": ["SuccessfulExit": false],
             "ProcessType": "Interactive",
             "StandardOutPath": "/dev/null",
@@ -45,22 +45,22 @@ public struct LaunchAgentInstaller {
         )
         try data.write(to: plistURL, options: .atomic)
 
-        // Önceki kurulum yüklüyse önce boşalt; aksi halde bootstrap
-        // "already loaded" (5: Input/output error) ile başarısız olur.
+        // Unload a previous install first; otherwise bootstrap fails with
+        // "already loaded" (5: Input/output error).
         let domain = "gui/\(getuid())"
         _ = launchctl(["bootout", "\(domain)/\(label)"])
 
         let result = launchctl(["bootstrap", domain, plistURL.path])
         guard result.status == 0 else {
-            let detail = result.output.isEmpty ? "çıkış kodu \(result.status)" : result.output
+            let detail = result.output.isEmpty ? "exit code \(result.status)" : result.output
             throw OrchestratorError.runtime(
-                "LaunchAgent yüklenemedi (plist yazıldı: \(plistURL.path)) — launchctl bootstrap: \(detail)"
+                "Couldn't load the LaunchAgent (plist written to \(plistURL.path)) — launchctl bootstrap: \(detail)"
             )
         }
         return plistURL
     }
 
-    /// launchctl'ı çalıştırır; çıkış kodu ve birleşik çıktıyı döner.
+    /// Runs launchctl and returns its exit code and combined output.
     private func launchctl(_ arguments: [String]) -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
@@ -79,9 +79,9 @@ public struct LaunchAgentInstaller {
         return (process.terminationStatus, output)
     }
 
-    /// LaunchAgent'ı kaldırır.
+    /// Removes the LaunchAgent.
     public func uninstall() throws {
-        // Yüklü değilse bootout başarısız olur; kaldırma için sorun değil.
+        // bootout fails if it isn't loaded; that's fine when uninstalling.
         _ = launchctl(["bootout", "gui/\(getuid())/\(label)"])
 
         if FileManager.default.fileExists(atPath: plistURL.path) {

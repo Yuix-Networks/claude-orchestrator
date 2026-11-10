@@ -1,8 +1,8 @@
 import Foundation
 
-/// Elle düzenlenen proje dosyası (`projects.json`) ile kayıt arasındaki fark.
+/// Difference between the hand-edited projects file (`projects.json`) and the registry.
 ///
-/// Dosya biçimi:
+/// File format:
 ///
 /// ```json
 /// {
@@ -14,25 +14,25 @@ import Foundation
 /// }
 /// ```
 ///
-/// - `name` isteğe bağlı (yoksa klasör adı), `folders` isteğe bağlı.
-/// - `permissionMode` isteğe bağlı: `bypassPermissions`, `acceptEdits`, `auto`,
-///   `plan`, `default` — bu projede açılan oturumların varsayılan izin modu.
-/// - `defaults` (isteğe bağlı) tüm projelere uygulanır: `folders` her projenin ek
-///   klasörlerine eklenir (projenin kendi klasörü hariç), `permissionMode`
-///   projede yazılmadıysa kullanılır.
-/// - Yollar `~` ile veya dosyanın bulunduğu klasöre göre göreli yazılabilir.
-/// - `//` ile başlayan anahtarlar not olarak yok sayılır; okurken `//` yorumları
-///   ve sondaki virgüller de kabul edilir (JSON5).
+/// - `name` is optional (defaults to the folder name); `folders` is optional.
+/// - `permissionMode` is optional: `bypassPermissions`, `acceptEdits`, `auto`,
+///   `plan`, `default` — the default permission mode for sessions opened in this project.
+/// - `defaults` (optional) applies to every project: `folders` is added to each
+///   project's extra folders (except the project's own folder), and `permissionMode`
+///   is used when the project doesn't set one.
+/// - Paths can use `~` or be relative to the folder the file is in.
+/// - Keys starting with `//` are ignored as notes; `//` comments and trailing
+///   commas are also accepted when reading (JSON5).
 public struct ProjectPlan: Equatable {
-    /// Kayıtta olmayan, eklenecek projeler.
+    /// Projects not in the registry, to be added.
     public var toAdd: [Project]
-    /// Klasörü veya ek klasörleri değişen projeler (eski, yeni).
+    /// Projects whose folder or extra folders changed (old, new).
     public var toUpdate: [ProjectChange]
-    /// Adı değişen projeler (aynı ana klasör, yeni ad).
+    /// Renamed projects (same main folder, new name).
     public var toRename: [ProjectChange]
-    /// `prune` ile silinecek, dosyada olmayan projeler.
+    /// Projects not in the file that `prune` will remove.
     public var toRemove: [Project]
-    /// Dosyada olmayan ama `prune` verilmediği için kalan projeler.
+    /// Projects not in the file that stay because `prune` wasn't given.
     public var untracked: [Project]
     public var unchanged: [Project]
 
@@ -41,72 +41,72 @@ public struct ProjectPlan: Equatable {
     }
 }
 
-/// Bir projenin eski ve yeni hali.
+/// Old and new version of a project.
 public struct ProjectChange: Equatable {
     public var old: Project
     public var new: Project
 }
 
-/// `project apply` sonucu.
+/// Result of `project apply`.
 public struct ProjectApplyResult: Equatable {
     public var plan: ProjectPlan
-    /// Eklenen/değişen projelerin instance'lara yazılması.
+    /// Writing added/changed projects to instances.
     public var synced: [ProjectSyncResult]
-    /// Değişen/silinen projelerin eski ortamlarının kaldırılması.
+    /// Removing the old environments of changed/removed projects.
     public var withdrawn: [ProjectRemoveResult]
 }
 
 extension Orchestrator {
-    /// `project apply` / `project export` için varsayılan dosya.
+    /// Default file for `project apply` / `project export`.
     public static var defaultManifestURL: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".config/claude-orchestrator/projects.json")
     }
 
-    // MARK: - Okuma
+    // MARK: - Reading
 
-    /// Proje dosyasını okur ve doğrular.
+    /// Reads and validates the projects file.
     ///
-    /// Tüm sorunlar toplanıp tek hatada raporlanır (ilk hatada durulmaz), böylece
-    /// elle düzenlenen dosyadaki her yazım hatası bir seferde görülür.
+    /// All problems are collected and reported in one error (it doesn't stop at the
+    /// first one), so every typo in a hand-edited file shows up at once.
     public static func loadManifest(_ url: URL) throws -> [Project] {
         let data: Data
         do {
             data = try Data(contentsOf: url)
         } catch {
-            throw OrchestratorError.runtime("proje dosyası okunamadı: \(url.path) — \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't read projects file: \(url.path) — \(error.localizedDescription)")
         }
         let root: Any
         do {
             root = try JSONSerialization.jsonObject(with: data, options: [.json5Allowed])
         } catch {
             let detail = (error as NSError).userInfo[NSDebugDescriptionErrorKey] as? String ?? error.localizedDescription
-            throw OrchestratorError.runtime("proje dosyası geçerli JSON değil: \(url.path) — \(detail)")
+            throw OrchestratorError.runtime("projects file isn't valid JSON: \(url.path) — \(detail)")
         }
 
         guard let object = root as? [String: Any] else {
-            throw OrchestratorError.runtime("proje dosyası bir JSON nesnesi olmalı: { \"projects\": [ … ] }")
+            throw OrchestratorError.runtime("projects file must be a JSON object: { \"projects\": [ … ] }")
         }
         var problems: [String] = []
         for key in object.keys where !["projects", "version", "defaults"].contains(key) && !key.hasPrefix("//") {
-            problems.append("bilinmeyen alan: \"\(key)\" (beklenen: \"projects\", \"defaults\")")
+            problems.append("unknown field: \"\(key)\" (expected: \"projects\", \"defaults\")")
         }
         if let version = object["version"], (version as? Int) != 1 {
-            problems.append("desteklenmeyen sürüm: \(version) (yalnızca 1)")
+            problems.append("unsupported version: \(version) (only 1)")
         }
         guard let entries = object["projects"] as? [Any] else {
-            problems.append("\"projects\" bir dizi olmalı")
+            problems.append("\"projects\" must be an array")
             throw OrchestratorError.runtime(Self.manifestError(url, problems))
         }
 
         let base = url.deletingLastPathComponent()
 
-        // Ortak ayarlar.
+        // Shared settings.
         var defaultFolders: [String] = []
         var defaultMode: String?
         if let rawDefaults = object["defaults"] {
             if let defaults = rawDefaults as? [String: Any] {
                 for key in defaults.keys where !["folders", "permissionMode"].contains(key) && !key.hasPrefix("//") {
-                    problems.append("defaults: bilinmeyen alan \"\(key)\" (beklenen: folders, permissionMode)")
+                    problems.append("defaults: unknown field \"\(key)\" (expected: folders, permissionMode)")
                 }
                 if let rawFolders = defaults["folders"] {
                     if let list = rawFolders as? [String] {
@@ -115,11 +115,11 @@ extension Orchestrator {
                                 let folder = try resolveDirectory(raw, relativeTo: base)
                                 if !defaultFolders.contains(folder) { defaultFolders.append(folder) }
                             } catch {
-                                problems.append("defaults: ek klasör — \(error)")
+                                problems.append("defaults: extra folder — \(error)")
                             }
                         }
                     } else {
-                        problems.append("defaults: \"folders\" metin dizisi olmalı")
+                        problems.append("defaults: \"folders\" must be an array of strings")
                     }
                 }
                 if let rawMode = defaults["permissionMode"] {
@@ -128,7 +128,7 @@ extension Orchestrator {
                     }
                 }
             } else {
-                problems.append("\"defaults\" bir nesne olmalı")
+                problems.append("\"defaults\" must be an object")
             }
         }
 
@@ -139,14 +139,14 @@ extension Orchestrator {
         for (index, entry) in entries.enumerated() {
             let label = "projects[\(index)]"
             guard let item = entry as? [String: Any] else {
-                problems.append("\(label): bir nesne olmalı")
+                problems.append("\(label): must be an object")
                 continue
             }
             for key in item.keys where !["name", "path", "folders", "permissionMode"].contains(key) && !key.hasPrefix("//") {
-                problems.append("\(label): bilinmeyen alan \"\(key)\" (beklenen: name, path, folders, permissionMode)")
+                problems.append("\(label): unknown field \"\(key)\" (expected: name, path, folders, permissionMode)")
             }
             guard let rawPath = item["path"] as? String else {
-                problems.append("\(label): \"path\" zorunlu ve metin olmalı")
+                problems.append("\(label): \"path\" is required and must be a string")
                 continue
             }
             let path: String
@@ -159,7 +159,7 @@ extension Orchestrator {
 
             let rawName = item["name"] ?? URL(fileURLWithPath: path).lastPathComponent
             guard let nameText = rawName as? String, let name = try? validateProjectName(nameText) else {
-                problems.append("\(label): \"name\" geçersiz (1-80 karakter metin)")
+                problems.append("\(label): invalid \"name\" (a string of 1-80 characters)")
                 continue
             }
             let tag = "\(label) \"\(name)\""
@@ -167,7 +167,7 @@ extension Orchestrator {
             var folders: [String] = []
             if let rawFolders = item["folders"] {
                 guard let list = rawFolders as? [String] else {
-                    problems.append("\(tag): \"folders\" metin dizisi olmalı")
+                    problems.append("\(tag): \"folders\" must be an array of strings")
                     continue
                 }
                 for raw in list {
@@ -175,7 +175,7 @@ extension Orchestrator {
                         let folder = try resolveDirectory(raw, relativeTo: base)
                         if folder != path && !folders.contains(folder) { folders.append(folder) }
                     } catch {
-                        problems.append("\(tag): ek klasör — \(error)")
+                        problems.append("\(tag): extra folder — \(error)")
                     }
                 }
             }
@@ -191,11 +191,11 @@ extension Orchestrator {
             }
 
             if let first = names[name] {
-                problems.append("\(tag): ad projects[\(first)] ile aynı")
+                problems.append("\(tag): same name as projects[\(first)]")
                 continue
             }
             if let first = paths[path] {
-                problems.append("\(tag): klasör projects[\(first)] ile aynı (\(path))")
+                problems.append("\(tag): same folder as projects[\(first)] (\(path))")
                 continue
             }
             names[name] = index
@@ -216,21 +216,21 @@ extension Orchestrator {
 
     private static func permissionModeProblem(_ raw: Any) -> String {
         let allowed = ProfileSeeder.permissionModes.sorted().joined(separator: ", ")
-        return "\"permissionMode\" geçersiz: \(raw) (geçerli: \(allowed))"
+        return "invalid \"permissionMode\": \(raw) (valid: \(allowed))"
     }
 
     private static func manifestError(_ url: URL, _ problems: [String]) -> String {
-        "proje dosyasında \(problems.count) sorun var (\(url.path)) — hiçbir şey değiştirilmedi:\n"
+        "projects file has \(problems.count) problem(s) (\(url.path)) — nothing was changed:\n"
             + problems.map { "  - \($0)" }.joined(separator: "\n")
     }
 
-    // MARK: - Plan ve uygulama
+    // MARK: - Plan and apply
 
-    /// Dosya ile kayıt arasındaki farkı hesaplar (hiçbir şey yazmaz).
+    /// Works out the difference between the file and the registry (writes nothing).
     public func planApply(_ desired: [Project], prune: Bool) throws -> ProjectPlan {
         let current = try store.load().projects
         let desiredNames = Set(desired.map(\.name))
-        // Dosyada adı geçmeyen kayıtlı projeler, ana klasörlerine göre.
+        // Registered projects whose name isn't in the file, keyed by main folder.
         var absentByPath: [String: Project] = [:]
         for project in current.values where !desiredNames.contains(project.name) {
             absentByPath[project.path] = project
@@ -247,13 +247,13 @@ extension Orchestrator {
                     plan.toUpdate.append(ProjectChange(old: existing, new: updated))
                 }
             } else if let renamed = absentByPath.removeValue(forKey: wanted.path) {
-                // Aynı klasör yeni adla: kayıt aynı klasörü iki adla tutamaz, yeniden adlandırmadır.
+                // Same folder under a new name: the registry can't hold one folder under two names, so it's a rename.
                 var updated = wanted
                 updated.createdAt = renamed.createdAt
                 plan.toRename.append(ProjectChange(old: renamed, new: updated))
             } else {
-                // Klasör kayıtta başka bir projedeyse, o proje dosyada başka bir yola
-                // taşınmıştır (dosyada klasörler benzersiz); güncelleme önce uygulanır.
+                // If the folder belongs to another project in the registry, that project
+                // moved to another path in the file (folders are unique there); the update is applied first.
                 plan.toAdd.append(wanted)
             }
         }
@@ -263,12 +263,12 @@ extension Orchestrator {
         return plan
     }
 
-    /// Planı uygular: kaydı günceller, eski ortamları kaldırır, yenilerini
-    /// tüm instance'lara yazar.
+    /// Applies the plan: updates the registry, removes old environments, and writes
+    /// the new ones to every instance.
     ///
-    /// Klasörü, ek klasörleri veya adı değişen bir projenin instance'lardaki ortamı
-    /// silinip yeniden yazılır (o ortamdaki model gibi Desktop ayarları sıfırlanır).
-    /// Yalnızca izin modu değiştiyse ortama dokunulmaz, mod yerinde güncellenir.
+    /// When a project's folder, extra folders or name change, its environment in each
+    /// instance is deleted and rewritten (Desktop settings in it, like the model, are reset).
+    /// If only the permission mode changed, the environment is left alone and the mode is updated in place.
     public func apply(_ plan: ProjectPlan) throws -> ProjectApplyResult {
         guard plan.hasChanges else {
             return ProjectApplyResult(plan: plan, synced: [], withdrawn: [])
@@ -284,13 +284,13 @@ extension Orchestrator {
         }
         try store.save(config)
 
-        // Ortamı yeniden yazılması gerekenler: tanımı (mod dışında) değişenler.
+        // Environments to rewrite: projects whose definition changed (other than the mode).
         let rewritten = plan.toUpdate
             .filter { $0.old.path != $0.new.path || $0.old.additionalFolders != $0.new.additionalFolders }
             .map(\.old) + plan.toRename.map(\.old)
         let withdrawn = withdraw(plan.toRemove + rewritten, remaining: config)
 
-        // Dosyadan kaldırılan izin modları Desktop'tan da silinir.
+        // Permission modes removed from the file are removed from Desktop too.
         let clearedModes = plan.toUpdate
             .filter { $0.old.permissionMode != nil && $0.new.permissionMode == nil }
             .map(\.new.path)
@@ -304,11 +304,11 @@ extension Orchestrator {
         return ProjectApplyResult(plan: plan, synced: synced, withdrawn: withdrawn)
     }
 
-    // MARK: - Dışa aktarma
+    // MARK: - Export
 
-    /// Kayıtlı projeleri proje dosyası biçiminde döner (ev dizini `~` olarak).
+    /// Returns the registered projects in projects-file format (home directory as `~`).
     ///
-    /// Alan sırası elle okunabilirlik için sabittir: name, path, folders.
+    /// Field order is fixed for readability: name, path, folders.
     public func exportManifest() throws -> String {
         try Self.renderManifest(projects())
     }

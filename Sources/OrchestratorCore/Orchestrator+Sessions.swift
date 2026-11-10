@@ -1,26 +1,26 @@
 import Foundation
 
-/// Oturumların bulunduğu yer: bir instance veya varsayılan Claude kurulumu.
+/// Where sessions live: an instance or the default Claude install.
 public struct SessionEndpoint: Equatable {
-    /// Varsayılan (claude-orchestrator dışı) Claude Desktop kurulumunu temsil eden ad.
+    /// Name for the default Claude Desktop install (the one not managed by claude-orchestrator).
     ///
-    /// Aynı adda bir instance tanımlıysa instance önceliklidir; yeni instance'a
-    /// bu ad verilemez.
+    /// If an instance with this name exists, the instance wins; new instances
+    /// can't use this name.
     public static let defaultName = "default"
 
     public var name: String
     /// `CLAUDE_CONFIG_DIR`.
     public var codeDir: URL
-    /// Electron profili.
+    /// Electron profile.
     public var profileDir: URL
     public var isRunning: Bool
     public var isDefault: Bool
-    /// Transcript özet önbelleği.
+    /// Transcript summary cache.
     public var cacheFile: URL?
 
     public var store: SessionStore { SessionStore(codeDir: codeDir, profileDir: profileDir, cacheFile: cacheFile) }
 
-    /// Profilde indirilmiş en yeni Claude Code CLI sürümü (`<profil>/claude-code/<sürüm>`).
+    /// Newest Claude Code CLI version downloaded into the profile (`<profile>/claude-code/<version>`).
     public var cliVersion: String? {
         let dir = profileDir.appendingPathComponent("claude-code")
         let versions = ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
@@ -29,22 +29,22 @@ public struct SessionEndpoint: Equatable {
     }
 }
 
-/// Bir oturum ve bulunduğu yer.
+/// A session and where it lives.
 public struct LocatedSession: Equatable {
     public var endpoint: SessionEndpoint
     public var session: SessionSummary
 }
 
-/// `clone` komutunun sonucu.
+/// Result of the `clone` command.
 public struct CloneResult: Equatable {
     public var instance: Instance
     public var sessionCount: Int
 }
 
 extension Orchestrator {
-    // MARK: - Uç noktalar
+    // MARK: - Endpoints
 
-    /// Varsayılan Claude kurulumunun dizinleri.
+    /// Directories of the default Claude install.
     public static var defaultCodeDir: URL {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude")
     }
@@ -53,7 +53,7 @@ extension Orchestrator {
         URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/Claude")
     }
 
-    /// Ada göre uç nokta (`default` → varsayılan Claude kurulumu).
+    /// Endpoint by name (`default` → the default Claude install).
     public func endpoint(_ name: String) throws -> SessionEndpoint {
         let config = try store.load()
         if config.instances[name] == nil, name == SessionEndpoint.defaultName {
@@ -67,7 +67,7 @@ extension Orchestrator {
             )
         }
         guard config.instances[name] != nil else {
-            throw OrchestratorError.notFound("instance '\(name)' bulunamadı")
+            throw OrchestratorError.notFound("instance '\(name)' not found")
         }
         return SessionEndpoint(
             name: name,
@@ -79,19 +79,19 @@ extension Orchestrator {
         )
     }
 
-    /// Tüm instance'ların uç noktaları (ada göre sıralı).
+    /// Endpoints of every instance (sorted by name).
     public func instanceEndpoints() throws -> [SessionEndpoint] {
         try store.load().instances.keys.sorted().map { try endpoint($0) }
     }
 
-    // MARK: - Listeleme
+    // MARK: - Listing
 
-    /// Oturumlar (en son etkinlik önce).
+    /// Sessions (most recent activity first).
     ///
     /// - Parameters:
-    ///   - instance: Yalnızca bu instance (`default` dahil). `nil` → tüm instance'lar.
-    ///   - project: Yalnızca bu çalışma dizinindeki oturumlar.
-    ///   - runningOnly: Yalnızca çalışan instance'lar.
+    ///   - instance: Only this instance (`default` included). `nil` → every instance.
+    ///   - project: Only sessions in this working directory.
+    ///   - runningOnly: Only running instances.
     public func sessions(instance: String? = nil, project: String? = nil, runningOnly: Bool = false) throws -> [LocatedSession] {
         let endpoints = try instance.map { [try endpoint($0)] } ?? instanceEndpoints()
         let projectPath = project.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
@@ -109,10 +109,10 @@ extension Orchestrator {
             .sorted { $0.session.lastActivity > $1.session.lastActivity }
     }
 
-    /// Kimliğe (veya benzersiz öneke) göre oturum.
+    /// Session by id (or unique prefix).
     ///
-    /// `instance` verilmezse tüm instance'larda aranır; birden çok instance'ta
-    /// eşleşme varsa belirsizlik hatası verilir.
+    /// Without `instance`, every instance is searched; if it matches in more than
+    /// one instance, an ambiguity error is thrown.
     public func findSession(_ id: String, instance: String? = nil) throws -> LocatedSession {
         let endpoints = try instance.map { [try endpoint($0)] } ?? instanceEndpoints()
         var matches: [LocatedSession] = []
@@ -122,30 +122,29 @@ extension Orchestrator {
             }
         }
         guard let first = matches.first else {
-            throw OrchestratorError.notFound("oturum bulunamadı: \(id)")
+            throw OrchestratorError.notFound("session not found: \(id)")
         }
         guard matches.count == 1 else {
             let names = matches.map(\.endpoint.name).joined(separator: ", ")
-            throw OrchestratorError.usage("oturum birden çok instance'ta var (\(names)) — --instance ile belirt")
+            throw OrchestratorError.usage("session exists in more than one instance (\(names)) — pick one with --instance")
         }
         return first
     }
 
-    /// Instance'ın en son etkin oturumu.
+    /// The instance's most recently active session.
     public func lastSession(instance: String) throws -> LocatedSession {
         guard let last = try sessions(instance: instance).first else {
-            throw OrchestratorError.notFound("'\(instance)' instance'ında oturum yok")
+            throw OrchestratorError.notFound("no sessions in instance '\(instance)'")
         }
         return last
     }
 
     // MARK: - Transfer
 
-    /// Oturumu başka bir instance'a kopyalar veya taşır.
+    /// Copies or moves the session to another instance.
     ///
-    /// Çalışan bir instance'ın config dizinine yazmak (veya `move` ile çalışan
-    /// kaynaktan silmek) Claude Code'un açık dosyalarıyla yarışabilir; bu
-    /// durumda `force` gerekir.
+    /// Writing to a running instance's config directory (or, with `move`, deleting
+    /// from a running source) can race with Claude Code's open files, so it needs `force`.
     public func transferSession(
         _ id: String,
         from: String? = nil,
@@ -157,18 +156,18 @@ extension Orchestrator {
         return try transfer(located, to: to, move: move, force: force)
     }
 
-    /// Bulunmuş bir oturumu aktarır.
+    /// Transfers a session that has already been found.
     public func transfer(_ located: LocatedSession, to: String, move: Bool, force: Bool = false) throws -> TransferResult {
         let target = try endpoint(to)
         if !force, target.isRunning {
             throw OrchestratorError.runtime(
-                "hedef instance çalışıyor: \(target.name) — önce durdur ya da --force ile devam et"
+                "target instance is running: \(target.name) — stop it first, or use --force to continue"
             )
         }
         if move, !force, located.endpoint.isRunning {
             throw OrchestratorError.runtime(
-                "kaynak instance çalışıyor: \(located.endpoint.name) — taşıma için önce durdur "
-                + "(ya da 'copy' kullan / --force ile devam et)"
+                "source instance is running: \(located.endpoint.name) — stop it before moving "
+                + "(or use 'copy' / --force to continue)"
             )
         }
         let transfer = SessionTransfer(
@@ -180,23 +179,23 @@ extension Orchestrator {
         return try transfer.transfer(located.session, move: move, force: force)
     }
 
-    // MARK: - Klonlama
+    // MARK: - Cloning
 
-    /// Instance'ı profil + Claude Code config + oturumlarıyla birlikte klonlar.
+    /// Clones the instance along with its profile, Claude Code config and sessions.
     ///
-    /// Kaynak çalışırken klonlanamaz: canlı bir Chromium profilinin (LevelDB,
-    /// SQLite) kopyası tutarsız olur. APFS'te kopya `clonefile` ile yapılır
-    /// (ek disk alanı neredeyse sıfır).
+    /// A running source can't be cloned: a copy of a live Chromium profile (LevelDB,
+    /// SQLite) would be inconsistent. On APFS the copy uses `clonefile`
+    /// (almost no extra disk space).
     public func clone(_ sourceName: String, as newName: String, workdir: String? = nil) throws -> CloneResult {
         try validateNewName(newName)
         let source = try store.instance(named: sourceName)
         let config = try store.load()
         guard config.instances[newName] == nil else {
-            throw OrchestratorError.runtime("instance '\(newName)' zaten var")
+            throw OrchestratorError.runtime("instance '\(newName)' already exists")
         }
         if launcher.runningPid(profileDir: paths.profileDir(sourceName)) != nil {
             throw OrchestratorError.runtime(
-                "kaynak instance çalışıyor: \(sourceName) — klonlamadan önce durdur"
+                "source instance is running: \(sourceName) — stop it before cloning"
             )
         }
 
@@ -204,7 +203,7 @@ extension Orchestrator {
         let destination = paths.instanceDir(newName)
         if fm.fileExists(atPath: destination.path) {
             throw OrchestratorError.runtime(
-                "hedef dizin zaten var: \(destination.path) — eski verileri kaldır (remove --purge) veya başka ad seç"
+                "target directory already exists: \(destination.path) — remove the old data (remove --purge) or pick another name"
             )
         }
         try fm.createDirectory(at: paths.instancesRoot, withIntermediateDirectories: true)
@@ -212,7 +211,7 @@ extension Orchestrator {
         let temporary = paths.instancesRoot.appendingPathComponent(".\(newName).clone-\(UUID().uuidString)")
         do {
             try fm.copyItem(at: paths.instanceDir(sourceName), to: temporary)
-            // Çalışma durumu ve Chromium tekil kilitleri kaynağa aittir.
+            // The run state and Chromium singleton locks belong to the source.
             for leftover in ["state.json", "profile/SingletonLock", "profile/SingletonCookie", "profile/SingletonSocket"] {
                 let url = temporary.appendingPathComponent(leftover)
                 if (try? fm.destinationOfSymbolicLink(atPath: url.path)) != nil || fm.fileExists(atPath: url.path) {
@@ -222,7 +221,7 @@ extension Orchestrator {
             try fm.moveItem(at: temporary, to: destination)
         } catch {
             try? fm.removeItem(at: temporary)
-            throw OrchestratorError.runtime("klonlanamadı: \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't clone: \(error.localizedDescription)")
         }
 
         let instance = Instance(name: newName, workdir: workdir ?? source.workdir, iconBadge: source.iconBadge)
@@ -235,9 +234,9 @@ extension Orchestrator {
         return CloneResult(instance: instance, sessionCount: count)
     }
 
-    /// Bir instance'ın tüm oturumlarını diğerine kopyalar (`new --sessions-from`).
+    /// Copies all sessions of one instance to another (`new --sessions-from`).
     ///
-    /// - Returns: Kopyalanan oturumlar ve atlananlar (sebebiyle).
+    /// - Returns: The copied sessions and the skipped ones (with the reason).
     public func copyAllSessions(from source: String, to target: String) throws -> (copied: [TransferResult], skipped: [(String, String)]) {
         var copied: [TransferResult] = []
         var skipped: [(String, String)] = []
@@ -251,12 +250,12 @@ extension Orchestrator {
         return (copied, skipped)
     }
 
-    /// Yeni instance adı: biçim kuralları + ayrılmış adlar.
+    /// New instance name: format rules + reserved names.
     func validateNewName(_ name: String) throws {
         try NameValidator.validate(name)
         if name == SessionEndpoint.defaultName {
             throw OrchestratorError.invalidName(
-                "'\(name)' ayrılmış bir ad (varsayılan Claude kurulumunu gösterir) — başka bir ad seç"
+                "'\(name)' is a reserved name (it means the default Claude install) — pick another name"
             )
         }
     }

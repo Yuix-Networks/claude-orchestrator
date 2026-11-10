@@ -1,23 +1,23 @@
 import AppKit
 import OrchestratorCore
 
-/// AppKit'e bağlı yardımcılar (yalnızca agent modunda kullanılır).
+/// AppKit-dependent helpers (used only in agent mode).
 public enum AppKitSupport {
-    /// Bir süreci öne getirir (pencereleri de öne alır).
+    /// Brings a process to the front, along with its windows.
     public static func activateProcess(pid: Int32) {
         NSRunningApplication(processIdentifier: pid)?.activate(options: [.activateAllWindows])
     }
 
-    /// Kullanıcıya bilgi penceresi gösterir.
+    /// Shows the user an informational alert.
     public static func presentMessage(title: String, message: String) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
-        alert.addButton(withTitle: "Tamam")
+        alert.addButton(withTitle: "OK")
         alert.runModal()
     }
 
-    /// Claude ikonunu menü çubuğu için yükler.
+    /// Loads the Claude icon for the menu bar.
     public static func claudeIcon() -> NSImage? {
         let path = URL(fileURLWithPath: ClaudeApp.defaultPath)
             .appendingPathComponent("Contents/Resources/electron.icns")

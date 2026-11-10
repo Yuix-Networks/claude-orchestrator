@@ -1,29 +1,29 @@
 import Foundation
 
-/// Komut satırı argüman ayrıştırıcı.
+/// Command-line argument parser.
 ///
-/// Desteklenen biçimler: `--flag`, `--flag değer`, `--flag=değer`, `-k değer`.
-/// Bilinmeyen bayraklar hata üretir (sessizce yutulmaz).
+/// Supported forms: `--flag`, `--flag value`, `--flag=value`, `-k value`.
+/// Unknown flags are an error (never silently ignored).
 public struct Arguments {
-    /// Kısa bayrakların karşılığı.
+    /// Long names for the short flags.
     public static let shortToLong: [String: String] = [
         "n": "lines",
         "f": "follow",
         "j": "json"
     ]
 
-    /// Değer alan bayraklar (sonraki argümanı tüketir); diğerleri boolean'dır.
+    /// Flags that take a value (they consume the next argument); all others are booleans.
     public static let valueTakingFlags: Set<String> = [
         "workdir", "folder", "target", "lines", "instance", "project", "to", "from", "as", "sessions-from", "name"
     ]
 
     public private(set) var positionals: [String] = []
     public private(set) var flags: [String: String] = [:]
-    /// Tekrarlanan bayrakların tüm değerleri (`--folder a --folder b`).
+    /// All values of repeated flags (`--folder a --folder b`).
     public private(set) var multiFlags: [String: [String]] = [:]
     public private(set) var booleans: Set<String> = []
 
-    /// - Parameter allowed: Bu komutun kabul ettiği bayrak adları.
+    /// - Parameter allowed: The flag names this command accepts.
     public init(_ args: [String], allowed: Set<String>) throws {
         var index = 0
         while index < args.count {
@@ -51,7 +51,7 @@ public struct Arguments {
             } else if arg.hasPrefix("-"), arg.count > 1 {
                 let short = String(arg.dropFirst())
                 guard let long = Arguments.shortToLong[short] else {
-                    throw OrchestratorError.usage("bilinmeyen bayrak: \(arg)")
+                    throw OrchestratorError.usage("unknown flag: \(arg)")
                 }
                 try validate(name: long, allowed: allowed)
 
@@ -74,39 +74,39 @@ public struct Arguments {
         multiFlags[name, default: []].append(value)
     }
 
-    /// Bayrağın verilen tüm değerleri (sırayla).
+    /// All values given for the flag, in order.
     public func values(_ name: String) -> [String] {
         multiFlags[name] ?? []
     }
 
     private func validate(name: String, allowed: Set<String>) throws {
         guard allowed.contains(name) else {
-            throw OrchestratorError.usage("bilinmeyen bayrak: --\(name)")
+            throw OrchestratorError.usage("unknown flag: --\(name)")
         }
     }
 
-    /// Zorunlu konumsal argüman.
+    /// Required positional argument.
     public func requirePositional(_ index: Int, name: String, command: String) throws -> String {
         guard index < positionals.count else {
-            throw OrchestratorError.usage("\(command): \(name) zorunlu")
+            throw OrchestratorError.usage("\(command): \(name) is required")
         }
         return positionals[index]
     }
 
-    /// Zorunlu bayrak değeri.
+    /// Required flag value.
     public func requireFlag(_ name: String, command: String) throws -> String {
         guard let value = flags[name] else {
-            throw OrchestratorError.usage("\(command): --\(name) zorunlu")
+            throw OrchestratorError.usage("\(command): --\(name) is required")
         }
         return value
     }
 
-    /// İsteğe bağlı bayrak değeri.
+    /// Optional flag value.
     public func optionalFlag(_ name: String) -> String? {
         flags[name]
     }
 
-    /// Bayrak var mı?
+    /// Is the flag present?
     public func has(_ name: String) -> Bool {
         booleans.contains(name) || flags[name] != nil
     }

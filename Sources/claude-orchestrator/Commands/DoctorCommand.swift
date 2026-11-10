@@ -1,7 +1,7 @@
 import OrchestratorCore
 import Foundation
 
-/// `claude-orchestrator doctor [<ad>] [--json]`
+/// `claude-orchestrator doctor [<name>] [--json]`
 enum DoctorCommand {
     static func run(_ args: [String]) throws {
         let parsed = try Arguments(args, allowed: ["json"])
@@ -23,8 +23,8 @@ enum DoctorCommand {
                 let marker: String
                 switch check.status {
                 case .ok: marker = "ok  "
-                case .warn: marker = "uyarı"
-                case .fail: marker = "HATA"
+                case .warn: marker = "warn"
+                case .fail: marker = "FAIL"
                 }
                 Output.line("\(marker)  \(check.name): \(check.detail)")
             }

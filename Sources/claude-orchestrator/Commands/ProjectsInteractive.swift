@@ -1,12 +1,13 @@
 import OrchestratorCore
 import Foundation
 
-/// Ana ekrandaki "Projects…": kayıtlı projeler (her profilde ortam olarak
-/// görünürler) ve `project` alt komutlarının etkileşimli karşılıkları.
+/// "Projects…" on the home screen: the registered projects (shown as
+/// environments in every profile) and interactive versions of the `project`
+/// subcommands.
 ///
-/// Yazan işler (ekle, sil, apply, sync, import) mevcut `ProjectCommand`
-/// fonksiyonlarıyla terminal kipinde çalışır; ekranlar yalnızca girdiyi ve
-/// onayı toplar. Böylece davranış ve raporlar CLI ile aynı kalır.
+/// Actions that write (add, remove, apply, sync, import) run through the
+/// existing `ProjectCommand` functions in normal terminal mode; the screens only
+/// collect input and confirmation, so behaviour and reports match the CLI.
 enum ProjectsInteractive {
     typealias Exit = HomeInteractive.Exit
     typealias Message = HomeInteractive.Message
@@ -16,13 +17,13 @@ enum ProjectsInteractive {
         case add, apply, export, sync, importFrom
     }
 
-    /// `nil` → ana ekrana dön.
+    /// `nil` → back to the home screen.
     static func run(ctl: Orchestrator, ui: TerminalUI) -> Exit? {
         var message: Message?
         var selection = 0
         while true {
             let projects = (try? ctl.projects()) ?? []
-            // Durum hesaplaması süreç listesine bakar (~0,3 sn): her tuşta değil, yüklemede bir kez.
+            // Computing the state reads the process list (~0.3 s): do it once per load, not on every key.
             let presence = projects.map { project in
                 ((try? ctl.projectPresence(project)) ?? []).map { (instance: $0.instance, presence: $0.presence) }
             }
@@ -63,7 +64,7 @@ enum ProjectsInteractive {
         }
     }
 
-    // MARK: - Liste
+    // MARK: - List
 
     private static func listLines(
         _ projects: [Project],
@@ -120,7 +121,7 @@ enum ProjectsInteractive {
         return lines
     }
 
-    // MARK: - Proje ayrıntısı
+    // MARK: - Project details
 
     private static func projectMenu(_ project: Project, ctl: Orchestrator, ui: TerminalUI) -> Exit? {
         let actions = ["Remove…", "Back"]
@@ -169,7 +170,7 @@ enum ProjectsInteractive {
         }
     }
 
-    // MARK: - Ekle
+    // MARK: - Add
 
     private static func addProject(ui: TerminalUI) -> Exit? {
         guard let rawPath = HomeInteractive.textInput(
@@ -228,7 +229,7 @@ enum ProjectsInteractive {
         ), let plan else { return nil }
         let path = expand(rawPath)
 
-        // Silinecekler (--prune) ayrı bir seçenek: dosyada olmayan kayıtlı projeler.
+        // Removals (--prune) are a separate option: registered projects not in the file.
         let changes = plan.toAdd.count + plan.toUpdate.count + plan.toRename.count
         let removable = plan.toRemove
         if changes == 0, removable.isEmpty {
@@ -295,7 +296,7 @@ enum ProjectsInteractive {
         }
     }
 
-    // MARK: - İçe aktar
+    // MARK: - Import
 
     private static func importFrom(ctl: Orchestrator, ui: TerminalUI) -> Exit? {
         let sources = ((try? ctl.instanceEndpoints()) ?? []).map(\.name) + [SessionEndpoint.defaultName]
@@ -324,9 +325,9 @@ enum ProjectsInteractive {
         }
     }
 
-    // MARK: - Yardımcılar
+    // MARK: - Helpers
 
-    /// `[y/N]` onayı.
+    /// `[y/N]` confirmation.
     private static func confirm(ui: TerminalUI, title: String, body: String) -> Bool {
         let lines = [Style.bold + title + Style.reset, ""]
             + body.wrapped(min(ui.size.columns - 2, 78))

@@ -2,7 +2,7 @@ import XCTest
 @testable import OrchestratorAgent
 @testable import OrchestratorCore
 
-/// Agent testleri için sahte launcher.
+/// Fake launcher for the agent tests.
 final class FakeLauncher: Launching {
     var runningPids: [String: Int32] = [:]
 
@@ -105,15 +105,15 @@ final class AgentModelTests: XCTestCase {
         let second = StatusItemController(model: model, paths: paths)
 
         XCTAssertTrue(first.acquireSingleton())
-        XCTAssertFalse(second.acquireSingleton(), "ikinci örnek kilidi alamamalı")
+        XCTAssertFalse(second.acquireSingleton(), "the second instance should not acquire the lock")
 
         first.releaseSingleton()
-        XCTAssertTrue(second.acquireSingleton(), "kilit bırakılınca alınabilmeli")
+        XCTAssertTrue(second.acquireSingleton(), "the lock should be acquirable once released")
         second.releaseSingleton()
     }
 
     func testStalePidFileDoesNotBlockSingleton() throws {
-        // Eski sürümün bıraktığı, canlı bir pid'e (kendi pid'imiz) işaret eden dosya.
+        // A file left by an older version, pointing at a live pid (our own).
         try FileManager.default.createDirectory(at: paths.stateDirectory, withIntermediateDirectories: true)
         try Data("\(getpid())".utf8).write(to: paths.stateDirectory.appendingPathComponent("agent.pid"))
 
@@ -140,6 +140,6 @@ final class AgentModelTests: XCTestCase {
 
         let titles = model.menuItems(for: status).map(\.title)
 
-        XCTAssertEqual(Set(titles).count, titles.count, "menü başlıkları benzersiz olmalı")
+        XCTAssertEqual(Set(titles).count, titles.count, "menu titles should be unique")
     }
 }

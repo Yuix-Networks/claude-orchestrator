@@ -1,9 +1,9 @@
 import Foundation
 
-/// `claude-orchestrator` dosya sistemi düzeni.
+/// `claude-orchestrator` file system layout.
 ///
-/// Tüm yollar tek bir kökten (`root`) türetilir; testler geçici bir kök verir,
-/// üretimde kök `~/Library/Application Support/claude-ctl` olur.
+/// Every path is derived from a single `root`. Tests pass a temporary root;
+/// in production the root is `~/Library/Application Support/claude-ctl`.
 public struct Paths: Sendable, Equatable {
     public let root: URL
 
@@ -11,14 +11,14 @@ public struct Paths: Sendable, Equatable {
         self.root = root
     }
 
-    /// Üretim kökü: `~/Library/Application Support/claude-ctl`.
+    /// Production root: `~/Library/Application Support/claude-ctl`.
     ///
-    /// Araç `claude-orchestrator` olarak yeniden adlandırıldı ama veri dizini
-    /// bilinçli olarak eski adıyla kalıyor: v0.1.0 ile oluşturulmuş instance'lar
-    /// taşıma gerektirmeden çalışmaya devam eder.
+    /// The tool was renamed to `claude-orchestrator`, but the data directory
+    /// deliberately keeps the old name so instances created with v0.1.0 keep
+    /// working without a migration.
     ///
-    /// `CLAUDE_ORCHESTRATOR_HOME` verilirse kök odur (deneme/test için gerçek
-    /// instance'lara dokunmadan çalıştırmak).
+    /// If `CLAUDE_ORCHESTRATOR_HOME` is set, it becomes the root (useful for
+    /// trying things out without touching real instances).
     public static var `default`: Paths {
         if let override = ProcessInfo.processInfo.environment["CLAUDE_ORCHESTRATOR_HOME"], !override.isEmpty {
             return Paths(root: URL(fileURLWithPath: override))
@@ -27,36 +27,36 @@ public struct Paths: Sendable, Equatable {
             .appendingPathComponent("Library/Application Support/claude-ctl"))
     }
 
-    /// Instance tanımlarının tutulduğu `config.json`.
+    /// `config.json`, which holds the instance definitions.
     public var configFile: URL { root.appendingPathComponent("config.json") }
 
-    /// Instance dizinlerinin kökü.
+    /// Root of the instance directories.
     public var instancesRoot: URL { root.appendingPathComponent("instances") }
 
-    /// Agent singleton pid dosyasının tutulduğu dizin.
+    /// Directory holding the agent's singleton pid file.
     public var stateDirectory: URL { root.appendingPathComponent("state") }
 
-    /// `session move` yedekleri.
+    /// Backups made by `session move`.
     public var backupsDir: URL { root.appendingPathComponent("backups") }
 
-    /// Oturum özetleri önbelleği (silinmesi güvenlidir).
+    /// Cache of session summaries (safe to delete).
     public var sessionCacheFile: URL { root.appendingPathComponent("cache/sessions.json") }
 
     public func instanceDir(_ name: String) -> URL {
         instancesRoot.appendingPathComponent(name)
     }
 
-    /// Electron profili (`--user-data-dir`).
+    /// Electron profile (`--user-data-dir`).
     public func profileDir(_ name: String) -> URL {
         instanceDir(name).appendingPathComponent("profile")
     }
 
-    /// Claude Code yapılandırma dizini (`CLAUDE_CONFIG_DIR`).
+    /// Claude Code config directory (`CLAUDE_CONFIG_DIR`).
     public func codeDir(_ name: String) -> URL {
         instanceDir(name).appendingPathComponent("claude-code")
     }
 
-    /// Çalışma durumu (pid, başlangıç zamanı, sürüm).
+    /// Runtime state (pid, start time, version).
     public func stateFile(_ name: String) -> URL {
         instanceDir(name).appendingPathComponent("state.json")
     }

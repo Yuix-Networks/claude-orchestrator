@@ -1,35 +1,35 @@
 import Foundation
 
-/// Oturum transferinin sonucu.
+/// Result of a session transfer.
 public struct TransferResult: Equatable {
     public var session: SessionSummary
-    /// Hedefe yazılan dosyalar.
+    /// Files written to the target.
     public var copiedFiles: [URL]
-    /// Hedef profile yazılan Desktop üst veri dosyası (yazılamadıysa `nil`).
+    /// Desktop metadata file written to the target profile (`nil` if it couldn't be written).
     public var desktopMetadata: URL?
-    /// `move` sırasında kaynak dosyaların taşındığı yedek dizini.
+    /// Backup directory the source files were moved to during `move`.
     public var backup: URL?
     public var warnings: [String]
 }
 
-/// Oturumları iki config dizini (instance) arasında kopyalar/taşır.
+/// Copies or moves sessions between two config directories (instances).
 ///
-/// Kurallar:
-/// - Hedefte aynı kimlikte oturum varsa reddedilir (`force` ile üzerine yazılır).
-/// - Hedef proje dizini başka bir gerçek yola aitse (slug çakışması) reddedilir.
-/// - Her dosya önce hedef dizinde geçici bir ada kopyalanır, sonra `rename`
-///   ile yerine konur: yarım kalmış transcript oluşmaz.
-/// - `move`, kaynak dosyaları silmez; `backupsDir` altına taşır (geri alınabilir).
+/// Rules:
+/// - Refused if the target already has a session with the same id (`force` overwrites it).
+/// - Refused if the target project directory belongs to a different real path (slug clash).
+/// - Each file is first copied under a temporary name in the target directory,
+///   then put in place with `rename`, so no half-written transcript is left behind.
+/// - `move` never deletes the source files; it moves them under `backupsDir` (reversible).
 public struct SessionTransfer {
     public let source: SessionStore
     public let target: SessionStore
-    /// `move` yedeklerinin kökü.
+    /// Root of the `move` backups.
     public let backupsDir: URL
-    /// Hedef instance'ın kurulu Claude Code CLI sürümü (bilinmiyorsa `nil`).
+    /// Installed Claude Code CLI version of the target instance (`nil` if unknown).
     public let targetCLIVersion: String?
 
-    /// Desktop üst verisinde hesaba/ortama bağlı alanlar: başka bir hesaba
-    /// taşındığında geçersiz kalırlar, bu yüzden kopyalanmazlar.
+    /// Desktop metadata fields tied to the account or environment: they become
+    /// invalid under another account, so they are not copied.
     static let accountBoundMetadataKeys: Set<String> = [
         "remoteMcpServersConfig", "envScopeId", "startedFromEnvironmentId",
         "toolSurfaceSnapshot", "promptAppendSnapshot", "spawnSeed",
@@ -44,36 +44,36 @@ public struct SessionTransfer {
         self.targetCLIVersion = targetCLIVersion
     }
 
-    // MARK: - Ön kontrol
+    // MARK: - Pre-checks
 
-    /// Transferi engelleyen sorunlar (boşsa transfer yapılabilir).
+    /// Problems that block the transfer (empty means it can go ahead).
     public func blockers(for session: SessionSummary, force: Bool) -> [String] {
         var problems: [String] = []
         if source.codeDir.standardizedFileURL == target.codeDir.standardizedFileURL {
-            problems.append("kaynak ve hedef aynı instance")
+            problems.append("source and target are the same instance")
             return problems
         }
         let targetTranscript = targetProjectDir(session).appendingPathComponent("\(session.id).jsonl")
         if !force, FileManager.default.fileExists(atPath: targetTranscript.path) {
-            problems.append("hedefte aynı kimlikte oturum var: \(session.id) (üzerine yazmak için --force)")
+            problems.append("the target already has a session with id \(session.id) (use --force to overwrite)")
         }
         if !force, let cwd = session.cwd, let original = originalPath(of: targetProjectDir(session)), original != cwd {
             problems.append(
-                "proje dizini çakışması: hedefte '\(session.projectSlug)' dizini '\(original)' yoluna ait, "
-                + "oturum '\(cwd)' yolunda (zorlamak için --force)"
+                "project directory clash: in the target, '\(session.projectSlug)' belongs to '\(original)', "
+                + "but the session is in '\(cwd)' (use --force to override)"
             )
         }
         return problems
     }
 
-    /// Transferi engellemeyen ama kullanıcıya gösterilmesi gereken uyarılar.
+    /// Warnings that don't block the transfer but should be shown to the user.
     public func warnings(for session: SessionSummary) -> [String] {
         var notes: [String] = []
         if let sessionVersion = session.cliVersion, let targetCLIVersion,
            Self.compareVersions(sessionVersion, targetCLIVersion) == .orderedDescending {
             notes.append(
-                "oturum Claude Code \(sessionVersion) ile yazılmış, hedefteki CLI \(targetCLIVersion) — "
-                + "transcript biçimi farklı olabilir"
+                "the session was written by Claude Code \(sessionVersion), but the target CLI is \(targetCLIVersion) — "
+                + "the transcript format may differ"
             )
         }
         return notes
@@ -81,7 +81,7 @@ public struct SessionTransfer {
 
     // MARK: - Transfer
 
-    /// Oturumu kopyalar; `move` ise kaynak yedeğe taşınır.
+    /// Copies the session; with `move`, the source is moved to a backup.
     @discardableResult
     public func transfer(_ session: SessionSummary, move: Bool, force: Bool) throws -> TransferResult {
         let problems = blockers(for: session, force: force)
@@ -94,8 +94,8 @@ public struct SessionTransfer {
         try fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
 
         var copied: [URL] = []
-        // Transcript en son yazılır: yarıda kalan bir transfer hedefte
-        // görünür (yarım) bir oturum bırakmasın.
+        // The transcript is written last, so an interrupted transfer doesn't
+        // leave a visible (half-copied) session in the target.
         let sidecar = session.transcript.deletingPathExtension()
         if fm.fileExists(atPath: sidecar.path) {
             copied.append(try atomicCopy(sidecar, to: targetDir.appendingPathComponent(sidecar.lastPathComponent)))
@@ -111,9 +111,9 @@ public struct SessionTransfer {
         var notes = warnings(for: session)
         let metadata = try copyDesktopMetadata(for: session, force: force, warnings: &notes)
 
-        // Doğrulama: hedef config dizini oturumu görebiliyor mu?
+        // Verify: can the target config directory see the session?
         guard (try? target.find(session.id)) != nil else {
-            throw OrchestratorError.runtime("transfer doğrulanamadı: hedefte oturum görünmüyor (\(session.id))")
+            throw OrchestratorError.runtime("couldn't verify the transfer: the session doesn't show up in the target (\(session.id))")
         }
 
         var backup: URL?
@@ -130,13 +130,13 @@ public struct SessionTransfer {
         )
     }
 
-    // MARK: - Yardımcılar
+    // MARK: - Helpers
 
     func targetProjectDir(_ session: SessionSummary) -> URL {
         target.projectsDir.appendingPathComponent(session.projectSlug)
     }
 
-    /// `sessions-index.json` → `originalPath` (yoksa `nil`).
+    /// `sessions-index.json` → `originalPath` (`nil` if missing).
     func originalPath(of projectDir: URL) -> String? {
         let url = projectDir.appendingPathComponent("sessions-index.json")
         guard let data = try? Data(contentsOf: url),
@@ -145,7 +145,7 @@ public struct SessionTransfer {
         return object["originalPath"] as? String
     }
 
-    /// Dosya veya dizini geçici ada kopyalayıp `rename` ile yerine koyar.
+    /// Copies a file or directory under a temporary name, then puts it in place with `rename`.
     @discardableResult
     func atomicCopy(_ from: URL, to destination: URL) throws -> URL {
         let fm = FileManager.default
@@ -161,16 +161,16 @@ public struct SessionTransfer {
         } catch {
             try? fm.removeItem(at: temporary)
             throw OrchestratorError.runtime(
-                "kopyalanamadı: \(from.path) → \(destination.path) — \(error.localizedDescription)"
+                "couldn't copy \(from.path) → \(destination.path) — \(error.localizedDescription)"
             )
         }
         return destination
     }
 
-    /// Kaynak indeksindeki kaydı hedef indekse ekler (aynı kimlik varsa değiştirir).
+    /// Adds the entry from the source index to the target index (replacing one with the same id).
     ///
-    /// Kayıtlardaki kaynak config yolu hedef config yoluyla değiştirilir
-    /// (`fullPath` gibi alanlar mutlak yol taşır).
+    /// The source config path inside the entry is rewritten to the target config
+    /// path (fields like `fullPath` hold absolute paths).
     func mergeIndexEntry(for session: SessionSummary, into targetDir: URL) throws {
         let sourceIndex = session.transcript.deletingLastPathComponent().appendingPathComponent("sessions-index.json")
         let targetIndex = targetDir.appendingPathComponent("sessions-index.json")
@@ -178,7 +178,7 @@ public struct SessionTransfer {
         let sourceObject = readObject(sourceIndex)
         let sourceEntries = sourceObject?["entries"] as? [[String: Any]] ?? []
         guard let entry = sourceEntries.first(where: { $0["sessionId"] as? String == session.id }) else {
-            return // Kaynakta kayıt yok: Claude Code transcript'leri dizinden de bulur.
+            return // No entry in the source: Claude Code also finds transcripts from the directory.
         }
 
         var targetObject = readObject(targetIndex) ?? [
@@ -209,19 +209,19 @@ public struct SessionTransfer {
         }
     }
 
-    /// Desktop Code sekmesinin kenar çubuğunda görünmesi için üst veri kopyası.
+    /// Copies the metadata so the session shows up in the Desktop Code tab sidebar.
     ///
-    /// Hesaba bağlı alanlar atılır; yeni bir `local_<uuid>` kimliği verilir.
-    /// Hedef profilde etkin hesap/org belirlenemiyorsa yazılmaz (uyarı eklenir).
+    /// Account-bound fields are dropped and a new `local_<uuid>` id is assigned.
+    /// Nothing is written if the active account/org of the target profile can't be determined (a warning is added instead).
     func copyDesktopMetadata(for session: SessionSummary, force: Bool, warnings: inout [String]) throws -> URL? {
         guard let sourceFile = source.desktopMetadataFiles()[session.id],
               var object = readObject(sourceFile)
         else { return nil }
 
-        let resumeHint = "Claude Desktop kenar çubuğunda görünmeyebilir; terminalden açmak için: "
+        let resumeHint = "It may not show up in the Claude Desktop sidebar; to open it from the terminal: "
             + "CLAUDE_CONFIG_DIR=\"\(target.codeDir.path)\" claude --resume \(session.id)"
         guard let directory = target.desktopMetadataDirectory() else {
-            warnings.append("hedef profilde etkin hesap/org belirlenemedi (giriş yapılmamış olabilir) — " + resumeHint)
+            warnings.append("couldn't determine the active account/org in the target profile (it may not be signed in) — " + resumeHint)
             return nil
         }
 
@@ -241,7 +241,7 @@ public struct SessionTransfer {
         return destination
     }
 
-    /// `move`: kaynak dosyalarını yedek dizinine taşır ve indeks kaydını siler.
+    /// `move`: moves the source files to the backup directory and removes the index entry.
     func moveSourceToBackup(_ session: SessionSummary) throws -> URL {
         let fm = FileManager.default
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
@@ -254,7 +254,7 @@ public struct SessionTransfer {
             try fm.moveItem(at: item, to: backup.appendingPathComponent(item.lastPathComponent))
         }
 
-        // Kaynak indeks kaydı yedeğe yazılır, indeksten silinir.
+        // The source index is copied to the backup, then the entry is removed from it.
         let index = session.transcript.deletingLastPathComponent().appendingPathComponent("sessions-index.json")
         if var object = readObject(index), let entries = object["entries"] as? [[String: Any]] {
             let kept = entries.filter { $0["sessionId"] as? String != session.id }
@@ -266,7 +266,7 @@ public struct SessionTransfer {
             }
         }
 
-        // Geri yükleme için nereden geldiğini kaydet.
+        // Record where it came from, for restoring.
         let manifest: [String: Any] = [
             "sessionId": session.id,
             "sourceConfigDir": source.codeDir.path,
@@ -289,11 +289,11 @@ public struct SessionTransfer {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
         } catch {
-            throw OrchestratorError.runtime("yazılamadı: \(url.path) — \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't write \(url.path) — \(error.localizedDescription)")
         }
     }
 
-    /// Noktalı sürüm karşılaştırması (`2.1.29` < `2.1.308`).
+    /// Dotted version comparison (`2.1.29` < `2.1.308`).
     public static func compareVersions(_ lhs: String, _ rhs: String) -> ComparisonResult {
         lhs.compare(rhs, options: .numeric)
     }

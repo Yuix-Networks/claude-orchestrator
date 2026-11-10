@@ -1,11 +1,11 @@
 import Foundation
 
-/// Çalışan süreçlerin listesi. Testlerde sahte (fake) uygulanabilir.
+/// Lists running processes. Tests can supply a fake implementation.
 public protocol ProcessListing {
     func processes() -> [(pid: Int32, command: String)]
 }
 
-/// `/bin/ps` üzerinden süreç listesi.
+/// Process listing backed by `/bin/ps`.
 public struct PsProcessListing: ProcessListing {
     public init() {}
 

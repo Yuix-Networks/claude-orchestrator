@@ -1,6 +1,6 @@
 import Foundation
 
-/// `config.json` üzerinde instance CRUD işlemleri.
+/// Instance CRUD operations on `config.json`.
 public final class InstanceStore {
     public let paths: Paths
 
@@ -8,11 +8,11 @@ public final class InstanceStore {
         self.paths = paths
     }
 
-    /// Config dosyasını okur. Dosya yoksa boş config döner.
+    /// Reads the config file. Returns an empty config if the file doesn't exist.
     ///
-    /// Elle düzenlenmiş config'teki geçersiz instance adları (path traversal
-    /// riski) reddedilir: ad politikası dışındaki bir ad, instance kökünün
-    /// dışına yol türetmek için kullanılabilir.
+    /// Invalid instance names in a hand-edited config are rejected (path
+    /// traversal risk): a name outside the naming policy could be used to build
+    /// a path outside the instances root.
     public func load() throws -> Config {
         guard let config = try JSONFile.read(Config.self, from: paths.configFile) else {
             return Config()
@@ -25,21 +25,21 @@ public final class InstanceStore {
         return config
     }
 
-    /// Config dosyasını yazar.
+    /// Writes the config file.
     public func save(_ config: Config) throws {
         try JSONFile.write(config, to: paths.configFile)
     }
 
-    /// Adıyla instance'ı getirir; yoksa `notFound` hatası.
+    /// Returns the instance with the given name; throws `notFound` if there is none.
     public func instance(named name: String) throws -> Instance {
         let config = try load()
         guard let instance = config.instances[name] else {
-            throw OrchestratorError.notFound("instance '\(name)' bulunamadı")
+            throw OrchestratorError.notFound("instance '\(name)' not found")
         }
         return instance
     }
 
-    /// Instance'ı ekler veya günceller. Geçersiz ad reddedilir.
+    /// Adds or updates an instance. Invalid names are rejected.
     public func upsert(_ instance: Instance) throws {
         try NameValidator.validate(instance.name)
         var config = try load()
@@ -47,11 +47,11 @@ public final class InstanceStore {
         try save(config)
     }
 
-    /// Instance'ı siler; yoksa `notFound` hatası.
+    /// Removes an instance; throws `notFound` if there is none.
     public func remove(named name: String) throws {
         var config = try load()
         guard config.instances.removeValue(forKey: name) != nil else {
-            throw OrchestratorError.notFound("instance '\(name)' bulunamadı")
+            throw OrchestratorError.notFound("instance '\(name)' not found")
         }
         try save(config)
     }

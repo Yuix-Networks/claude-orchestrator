@@ -23,7 +23,7 @@ final class ProfileSeederTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    // MARK: - Yardımcılar
+    // MARK: - Helpers
 
     private func writeJSON(_ object: Any, to url: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
@@ -41,7 +41,7 @@ final class ProfileSeederTests: XCTestCase {
         return try XCTUnwrap(preferences["localAgentModeTrustedFolders"] as? [String])
     }
 
-    // MARK: - Testler
+    // MARK: - Tests
 
     func testSeedAddsWorkdirToTrustedFolders() throws {
         let result = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
@@ -60,9 +60,9 @@ final class ProfileSeederTests: XCTestCase {
         _ = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
 
         let config = try readJSON(configURL)
-        XCTAssertNotNil(config["mcpServers"], "mcpServers korunmalı")
+        XCTAssertNotNil(config["mcpServers"], "mcpServers should be preserved")
         let preferences = try XCTUnwrap(config["preferences"] as? [String: Any])
-        XCTAssertEqual(preferences["menuBarEnabled"] as? Bool, false, "mevcut tercihler korunmalı")
+        XCTAssertEqual(preferences["menuBarEnabled"] as? Bool, false, "existing preferences should be preserved")
         XCTAssertEqual(preferences["localAgentModeTrustedFolders"] as? [String], [workdir.path])
     }
 
@@ -74,7 +74,7 @@ final class ProfileSeederTests: XCTestCase {
         let secondResult = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
 
         let secondPass = try Data(contentsOf: configURL)
-        XCTAssertEqual(firstPass, secondPass, "ikinci seed dosyayı değiştirmemeli")
+        XCTAssertEqual(firstPass, secondPass, "a second seed should not change the file")
         XCTAssertFalse(secondResult.trustedFolderAdded)
         XCTAssertEqual(try trustedFolders(), [workdir.path])
     }
@@ -101,7 +101,7 @@ final class ProfileSeederTests: XCTestCase {
     }
 
     func testSeedSkipsPresetWhenNoAccountIsKnown() throws {
-        // `byAccount` bir JSON nesnesi olmalı (boş dizi değil).
+        // `byAccount` must be a JSON object (not an empty array).
         try writeJSON(
             ["byAccount": [String: Any]() as [String: Any]],
             to: profileDir.appendingPathComponent("ccd-session-presets.json")
@@ -131,14 +131,14 @@ final class ProfileSeederTests: XCTestCase {
 
     func testSeedPrefersLastKnownAccountOverAlphabeticalFirst() throws {
         try writeJSON(
-            ["byAccount": ["aaa-eski": ["presets": []], "zzz-etkin": ["presets": []]]],
+            ["byAccount": ["aaa-old": ["presets": []], "zzz-active": ["presets": []]]],
             to: profileDir.appendingPathComponent("ccd-session-presets.json")
         )
-        try writeJSON(["lastKnownAccountUuid": "zzz-etkin"], to: profileDir.appendingPathComponent("config.json"))
+        try writeJSON(["lastKnownAccountUuid": "zzz-active"], to: profileDir.appendingPathComponent("config.json"))
 
         let result = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
 
-        XCTAssertEqual(result.accountUUID, "zzz-etkin")
+        XCTAssertEqual(result.accountUUID, "zzz-active")
         XCTAssertTrue(result.presetAdded)
     }
 
@@ -150,7 +150,7 @@ final class ProfileSeederTests: XCTestCase {
 
         let result = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
 
-        XCTAssertNil(result.accountUUID, "etkin hesap bilinmiyorsa tahmin yapılmamalı")
+        XCTAssertNil(result.accountUUID, "should not guess when the active account is unknown")
         XCTAssertFalse(result.presetAdded)
     }
 
@@ -164,7 +164,7 @@ final class ProfileSeederTests: XCTestCase {
     }
 
     func testSeedHandlesWorkdirWithSpacesAndUnicode() throws {
-        let unicodeDir = root.appendingPathComponent("boş luk ve ğ")
+        let unicodeDir = root.appendingPathComponent("with spaces and ü é")
         try FileManager.default.createDirectory(at: unicodeDir, withIntermediateDirectories: true)
 
         _ = try seeder.seed(profileDir: profileDir, workdir: unicodeDir.path)
@@ -175,48 +175,48 @@ final class ProfileSeederTests: XCTestCase {
     }
 
     func testSeedThrowsWhenWorkdirDoesNotExist() throws {
-        let missing = root.appendingPathComponent("yok-\(UUID().uuidString)").path
+        let missing = root.appendingPathComponent("missing-\(UUID().uuidString)").path
 
         XCTAssertThrowsError(try seeder.seed(profileDir: profileDir, workdir: missing)) { error in
             guard case .runtime = error as? OrchestratorError else {
-                return XCTFail("runtime bekleniyordu: \(error)")
+                return XCTFail("expected runtime: \(error)")
             }
         }
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: profileDir.appendingPathComponent("claude_desktop_config.json").path),
-            "başarısız seed dosya yazmamalı"
+            "a failed seed should not write a file"
         )
     }
 
-    // MARK: - Veri kaybı koruması
+    // MARK: - Data loss protection
 
     func testSeedRefusesToOverwriteConfigWithUnexpectedShape() throws {
         let configURL = profileDir.appendingPathComponent("claude_desktop_config.json")
-        try writeJSON([["dizi", "elemanı"]], to: configURL)
+        try writeJSON([["array", "element"]], to: configURL)
         let before = try Data(contentsOf: configURL)
 
         XCTAssertThrowsError(try seeder.seed(profileDir: profileDir, workdir: workdir.path)) { error in
             guard case .runtime = error as? OrchestratorError else {
-                return XCTFail("runtime bekleniyordu: \(error)")
+                return XCTFail("expected runtime: \(error)")
             }
         }
 
         let after = try Data(contentsOf: configURL)
-        XCTAssertEqual(before, after, "beklenmeyen yapıdaki dosya ezilmemeli")
+        XCTAssertEqual(before, after, "a file with an unexpected shape should not be overwritten")
     }
 
     func testSeedRefusesToOverwritePresetsWithUnexpectedShape() throws {
         let presetsURL = profileDir.appendingPathComponent("ccd-session-presets.json")
-        try writeJSON(["byAccount": "metin"], to: presetsURL)
+        try writeJSON(["byAccount": "text"], to: presetsURL)
         let before = try Data(contentsOf: presetsURL)
 
         XCTAssertThrowsError(try seeder.seed(profileDir: profileDir, workdir: workdir.path)) { error in
             guard case .runtime = error as? OrchestratorError else {
-                return XCTFail("runtime bekleniyordu: \(error)")
+                return XCTFail("expected runtime: \(error)")
             }
         }
 
-        XCTAssertEqual(try Data(contentsOf: presetsURL), before, "preset dosyası ezilmemeli")
+        XCTAssertEqual(try Data(contentsOf: presetsURL), before, "the presets file should not be overwritten")
     }
 
     func testSeedKeepsBackupOfExistingProfileFiles() throws {
@@ -226,7 +226,7 @@ final class ProfileSeederTests: XCTestCase {
         _ = try seeder.seed(profileDir: profileDir, workdir: workdir.path)
 
         let backup = profileDir.appendingPathComponent("claude_desktop_config.json.bak")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path), "yedek dosya oluşmalı")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: backup.path), "a backup file should be created")
         let backupJSON = try readJSON(backup)
         XCTAssertEqual((backupJSON["preferences"] as? [String: Any])?["menuBarEnabled"] as? Bool, true)
     }

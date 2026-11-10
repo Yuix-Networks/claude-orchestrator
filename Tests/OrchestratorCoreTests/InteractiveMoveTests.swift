@@ -3,12 +3,14 @@ import XCTest
 
 final class FuzzyMatchTests: XCTestCase {
     func testMatchesSubsequenceIgnoringCaseAndTurkishLetters() {
-        XCTAssertNotNil(FuzzyMatch.match("api river", in: "API anahtarlarını river'dan ekle"))
+        XCTAssertNotNil(FuzzyMatch.match("api river", in: "Add API keys from river"))
+        // Turkish dotless ı / dotted İ fold to plain "i" (session titles are often Turkish).
         XCTAssertNotNil(FuzzyMatch.match("anahtarlari", in: "API ANAHTARLARI"))
-        XCTAssertNotNil(FuzzyMatch.match("hairpin", in: "Proxmox3 hairpin sorunu"))
-        XCTAssertNotNil(FuzzyMatch.match("pxhp", in: "Proxmox3 hairpin sorunu"))
-        XCTAssertNil(FuzzyMatch.match("zzz", in: "Proxmox3 hairpin sorunu"))
-        XCTAssertNil(FuzzyMatch.match("api xyz", in: "API anahtarlarını river'dan ekle"))
+        XCTAssertNotNil(FuzzyMatch.match("isik", in: "Işık"))
+        XCTAssertNotNil(FuzzyMatch.match("hairpin", in: "Proxmox3 hairpin issue"))
+        XCTAssertNotNil(FuzzyMatch.match("pxhp", in: "Proxmox3 hairpin issue"))
+        XCTAssertNil(FuzzyMatch.match("zzz", in: "Proxmox3 hairpin issue"))
+        XCTAssertNil(FuzzyMatch.match("api xyz", in: "Add API keys from river"))
     }
 
     func testEmptyQueryMatchesEverything() {
@@ -22,10 +24,10 @@ final class FuzzyMatchTests: XCTestCase {
 
     func testConsecutiveAndWordStartMatchesRankHigher() {
         let ranked = FuzzyMatch.filter(
-            ["Claude-orchestrator session transferi", "Proxmox3 hairpin sorunu", "API anahtarlarını river'dan ekle"],
-            query: "sor"
+            ["Claude-orchestrator session transfer", "Proxmox3 hairpin issue", "Add API keys from river"],
+            query: "ses"
         ) { $0 }.map(\.item)
-        XCTAssertEqual(ranked.first, "Proxmox3 hairpin sorunu")
+        XCTAssertEqual(ranked.first, "Claude-orchestrator session transfer")
     }
 
     func testEqualScoresKeepOriginalOrder() {
@@ -35,7 +37,7 @@ final class FuzzyMatchTests: XCTestCase {
 }
 
 final class PickerModelTests: XCTestCase {
-    private let items = ["Claude-orchestrator session transferi", "Proxmox3 hairpin sorunu", "API anahtarlarını river'dan ekle"]
+    private let items = ["Claude-orchestrator session transfer", "Proxmox3 hairpin issue", "Add API keys from river"]
 
     func testTypingFiltersAndResetsSelection() {
         var picker = PickerModel(items: items)
@@ -72,7 +74,7 @@ final class PickerModelTests: XCTestCase {
     }
 
     func testNonSearchableListIgnoresTyping() {
-        var picker = PickerModel(items: ["derin", "merve"], searchable: false)
+        var picker = PickerModel(items: ["client", "school"], searchable: false)
         _ = picker.handle(.character("m"))
         XCTAssertEqual(picker.visible.count, 2)
         _ = picker.handle(.down)
@@ -91,72 +93,72 @@ final class SessionMovePlanTests: XCTestCase {
     }
 
     func testStopsRunningInstancesInOrderThenMovesThenRestarts() throws {
-        var running: Set = ["serdar", "merve"]
+        var running: Set = ["work", "school"]
         var log: [String] = []
         let plan = SessionMovePlan(
-            instances: ["serdar", "merve"],
+            instances: ["work", "school"],
             isRunning: { running.contains($0) },
             stop: { log.append("stop \($0)"); running.remove($0) },
             start: { log.append("start \($0)"); running.insert($0) },
             transfer: { log.append("move (running: \(running.count))"); return self.result() }
         )
         let outcome = try plan.run()
-        XCTAssertEqual(log, ["stop serdar", "stop merve", "move (running: 0)", "start serdar", "start merve"])
-        XCTAssertEqual(outcome.restarted, ["serdar", "merve"])
+        XCTAssertEqual(log, ["stop work", "stop school", "move (running: 0)", "start work", "start school"])
+        XCTAssertEqual(outcome.restarted, ["work", "school"])
     }
 
     func testOnlyRestartsWhatWasRunning() throws {
         var log: [String] = []
         let plan = SessionMovePlan(
-            instances: ["serdar", "merve"],
-            isRunning: { $0 == "merve" },
+            instances: ["work", "school"],
+            isRunning: { $0 == "school" },
             stop: { log.append("stop \($0)") },
             start: { log.append("start \($0)") },
             transfer: { self.result() }
         )
         let outcome = try plan.run()
-        XCTAssertEqual(log, ["stop merve", "start merve"])
-        XCTAssertEqual(outcome.stopped, ["merve"])
+        XCTAssertEqual(log, ["stop school", "start school"])
+        XCTAssertEqual(outcome.stopped, ["school"])
     }
 
     func testRestartsEvenWhenTransferFails() {
         var log: [String] = []
         let plan = SessionMovePlan(
-            instances: ["serdar", "merve"],
+            instances: ["work", "school"],
             isRunning: { _ in true },
             stop: { log.append("stop \($0)") },
             start: { log.append("start \($0)") },
             transfer: { throw OrchestratorError.runtime("boom") }
         )
         XCTAssertThrowsError(try plan.run()) { XCTAssertEqual($0 as? OrchestratorError, .runtime("boom")) }
-        XCTAssertEqual(log, ["stop serdar", "stop merve", "start serdar", "start merve"])
+        XCTAssertEqual(log, ["stop work", "stop school", "start work", "start school"])
     }
 
     func testRestartsAlreadyStoppedInstancesWhenSecondStopFails() {
         var log: [String] = []
         let plan = SessionMovePlan(
-            instances: ["serdar", "merve"],
+            instances: ["work", "school"],
             isRunning: { _ in true },
             stop: { name in
-                if name == "merve" { throw OrchestratorError.runtime("stuck") }
+                if name == "school" { throw OrchestratorError.runtime("stuck") }
                 log.append("stop \(name)")
             },
             start: { log.append("start \($0)") },
             transfer: { log.append("move"); return self.result() }
         )
         XCTAssertThrowsError(try plan.run())
-        XCTAssertEqual(log, ["stop serdar", "start serdar"])
+        XCTAssertEqual(log, ["stop work", "start work"])
     }
 
     func testRestartFailureIsReportedNotThrown() throws {
         let plan = SessionMovePlan(
-            instances: ["serdar"],
+            instances: ["work"],
             isRunning: { _ in true },
             stop: { _ in },
             start: { _ in throw OrchestratorError.runtime("no app") },
             transfer: { self.result() }
         )
         let outcome = try plan.run()
-        XCTAssertEqual(outcome.restartFailures.map(\.name), ["serdar"])
+        XCTAssertEqual(outcome.restartFailures.map(\.name), ["work"])
     }
 }

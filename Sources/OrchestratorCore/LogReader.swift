@@ -1,14 +1,14 @@
 import Foundation
 
-/// Claude'un paylaşılan log dosyasını okur.
+/// Reads Claude's shared log file.
 ///
-/// Loglar tüm instance'lar arasında paylaşılır (`~/Library/Logs/Claude/main.log`),
-/// bu yüzden filtreleme instance'ın başlangıç zamanı ve pid'i ile yapılır.
+/// All instances share one log (`~/Library/Logs/Claude/main.log`), so lines
+/// are filtered by the instance's start time and pid.
 public struct LogReader {
     public static let defaultLogDirectory = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Logs/Claude")
 
-    /// Sondan okumada bir seferde okunan blok boyutu.
+    /// Block size used when reading backwards from the end.
     static let chunkSize: UInt64 = 64 * 1024
 
     public let logDirectory: URL
@@ -19,16 +19,16 @@ public struct LogReader {
 
     public var logFile: URL { logDirectory.appendingPathComponent("main.log") }
 
-    /// Log satırlarını filtreler.
+    /// Filters log lines.
     ///
-    /// Dosya sondan geriye doğru bloklar halinde okunur; `limit` kadar eşleşme
-    /// bulunduğunda veya `since`'ten eski bir satıra ulaşıldığında okuma durur.
-    /// Böylece büyük bir `main.log` tamamen belleğe alınmaz.
+    /// The file is read backwards in blocks; reading stops once `limit` matches
+    /// are found or a line older than `since` is reached, so a large `main.log`
+    /// is never loaded into memory in full.
     ///
     /// - Parameters:
-    ///   - since: Bu tarihten eski satırlar elenir (zaman damgası olmayan satırlar elenmez).
-    ///   - pid: Verilirse yalnızca bu sürece ait satırlar (`electron_main:<pid>`) döner.
-    ///   - limit: En fazla bu kadar satır (en yeniler). `0` veya negatifse sınırsız.
+    ///   - since: Lines older than this are dropped (lines without a timestamp are kept).
+    ///   - pid: If given, only lines from this process (`electron_main:<pid>`) are returned.
+    ///   - limit: At most this many lines (the newest). `0` or negative means no limit.
     public func lines(since: Date, pid: Int32? = nil, limit: Int = 50) -> [String] {
         guard let handle = try? FileHandle(forReadingFrom: logFile) else { return [] }
         defer { try? handle.close() }
@@ -36,9 +36,9 @@ public struct LogReader {
         let formatter = Self.makeFormatter()
         let fileSize = (try? handle.seekToEnd()) ?? 0
 
-        var collected: [String] = []   // en yeniden eskiye
+        var collected: [String] = []   // newest first
         var offset = fileSize
-        var carry = Data()             // bir önceki bloğun başındaki yarım satır
+        var carry = Data()             // partial line at the start of the previous block
         var reachedOlder = false
 
         while offset > 0, !reachedOlder, limit <= 0 || collected.count < limit {
@@ -49,7 +49,7 @@ public struct LogReader {
             block.append(carry)
 
             var parts = block.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false)
-            // Dosyanın başına gelinmediyse ilk parça yarım satırdır; sonraki tura kalır.
+            // Unless we've reached the start of the file, the first part is a partial line; keep it for the next round.
             carry = offset > 0 ? Data(parts.removeFirst()) : Data()
 
             for part in parts.reversed() {
@@ -75,17 +75,17 @@ public struct LogReader {
     }
 }
 
-/// `logs -f` için log dosyası takipçisi.
+/// Log file follower for `logs -f`.
 ///
-/// Dosya döndürmeyi (rotation) algılar: dosyanın inode'u değişirse veya boyutu
-/// son okunan konumun altına düşerse dosya baştan okunur. Böylece takip
-/// sessizce durmaz.
+/// Detects log rotation: if the file's inode changes or its size drops below
+/// the last read position, the file is read from the start again, so
+/// following never silently stops.
 public final class LogFollower {
     public let url: URL
     private var position: UInt64
     private var inode: UInt64?
 
-    /// - Parameter fromEnd: `true` ise yalnızca bundan sonra yazılan satırlar döner.
+    /// - Parameter fromEnd: If `true`, only lines written from now on are returned.
     public init(url: URL, fromEnd: Bool = true) {
         self.url = url
         let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
@@ -93,10 +93,10 @@ public final class LogFollower {
         position = fromEnd ? ((attributes?[.size] as? NSNumber)?.uint64Value ?? 0) : 0
     }
 
-    /// Son çağrıdan beri eklenen tam satırlar.
+    /// Complete lines added since the last call.
     public func poll() -> [String] {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else {
-            // Dosya döndürme sırasında geçici olarak yok olabilir.
+            // The file can briefly disappear during rotation.
             return []
         }
         let currentInode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value
@@ -111,7 +111,7 @@ public final class LogFollower {
 
         try? handle.seek(toOffset: position)
         let data = (try? handle.read(upToCount: Int(size - position))) ?? Data()
-        // Yalnızca tamamlanmış satırlar tüketilir; yarım satır sonraki tura kalır.
+        // Only complete lines are consumed; a partial line waits for the next round.
         guard let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return [] }
         let complete = data[data.startIndex...lastNewline]
         position += UInt64(complete.count)

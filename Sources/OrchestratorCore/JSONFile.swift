@@ -1,9 +1,9 @@
 import Foundation
 
-/// Atomik JSON okuma/yazma yardımcıları.
+/// Atomic JSON read/write helpers.
 ///
-/// Tarihler ISO-8601 (`2026-11-08T10:00:00Z`) olarak saklanır; `config.json`
-/// kullanıcı tarafından elle de okunup düzenlenebilir kalsın diye.
+/// Dates are stored as ISO-8601 (`2026-11-08T10:00:00Z`) so that `config.json`
+/// stays easy to read and edit by hand.
 public enum JSONFile {
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
@@ -18,7 +18,7 @@ public enum JSONFile {
         return encoder
     }
 
-    /// Dosyayı okur. Dosya yoksa `nil`; okunamaz/bozuksa `corruptConfig` hatası.
+    /// Reads the file. Returns `nil` if it doesn't exist; throws `corruptConfig` if it is unreadable or corrupt.
     public static func read<T: Decodable>(_ type: T.Type, from url: URL) throws -> T? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         do {
@@ -29,7 +29,7 @@ public enum JSONFile {
         }
     }
 
-    /// Dosyayı yazar (üst dizinler gerekirse oluşturulur, yazma atomiktir).
+    /// Writes the file atomically, creating parent directories as needed.
     public static func write<T: Encodable>(_ value: T, to url: URL) throws {
         do {
             let data = try makeEncoder().encode(value)
@@ -41,7 +41,7 @@ public enum JSONFile {
         } catch let error as OrchestratorError {
             throw error
         } catch {
-            throw OrchestratorError.runtime("yazılamadı: \(url.path) — \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't write \(url.path) — \(error.localizedDescription)")
         }
     }
 }

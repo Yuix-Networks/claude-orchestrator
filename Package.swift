@@ -1,9 +1,9 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// Swift 6 dil modu (strict concurrency) bu projede kapalı: kod tabanı
-// senkron API'ler (Process, FileManager, NSStatusItem) kullanıyor ve
-// gereksiz concurrency hataları araç akışını yavaşlatır.
+// Swift 6 language mode (strict concurrency) is off for this project: the
+// codebase uses synchronous APIs (Process, FileManager, NSStatusItem), and
+// needless concurrency errors would only slow down the tooling.
 let swiftV5: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 
 let package = Package(

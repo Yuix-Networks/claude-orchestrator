@@ -1,7 +1,7 @@
 import XCTest
 @testable import OrchestratorCore
 
-/// Testler için sabit süreç listesi.
+/// Fixed process list for tests.
 struct FakeProcessListing: ProcessListing {
     var entries: [(pid: Int32, command: String)]
 
@@ -41,12 +41,12 @@ final class LauncherTests: XCTestCase {
         let request = LaunchRequest(appPath: "/Applications/Claude.app", profileDir: "/p", codeDir: "/c")
         let arguments = makeLauncher().launchArguments(request)
 
-        // `open --args` sonrasındaki her şey uygulamaya argv olarak gider.
-        // --env bu noktadan önce olmalı, yoksa uygulama `--env` ve değerini
-        // argv'sında görür (Electron bunu açılacak dosya sanır).
+        // Everything after `open --args` goes to the app as argv.
+        // --env must come before that point, otherwise the app sees `--env` and its
+        // value in its argv (Electron treats it as a file to open).
         let envIndex = try XCTUnwrap(arguments.firstIndex(of: "--env"))
         let argsIndex = try XCTUnwrap(arguments.firstIndex(of: "--args"))
-        XCTAssertLessThan(envIndex, argsIndex, "--env --args'tan önce olmalı")
+        XCTAssertLessThan(envIndex, argsIndex, "--env should come before --args")
     }
 
     func testLaunchArgumentsAppendExtraArgsAfterArgs() {
@@ -54,7 +54,7 @@ final class LauncherTests: XCTestCase {
             appPath: "/Applications/Claude.app",
             profileDir: "/p",
             codeDir: "/c",
-            extraArgs: ["/tmp/proje"]
+            extraArgs: ["/tmp/project"]
         )
         let arguments = makeLauncher().launchArguments(request)
 
@@ -62,7 +62,7 @@ final class LauncherTests: XCTestCase {
             "open", "-n", "-a", "/Applications/Claude.app",
             "--env", "CLAUDE_CONFIG_DIR=/c",
             "--args", "--user-data-dir=/p",
-            "/tmp/proje"
+            "/tmp/project"
         ])
     }
 
@@ -82,7 +82,7 @@ final class LauncherTests: XCTestCase {
         let request = LaunchRequest(appPath: "/Applications/Claude.app", profileDir: "/p", codeDir: "/c")
         let arguments = makeLauncher().openArguments(request)
 
-        XCTAssertEqual(arguments.first, "-n", "program adı argümanlarda tekrarlanmamalı")
+        XCTAssertEqual(arguments.first, "-n", "the program name should not be repeated in the arguments")
         XCTAssertFalse(arguments.contains("open"))
         XCTAssertEqual(arguments, [
             "-n", "-a", "/Applications/Claude.app",
@@ -98,7 +98,7 @@ final class LauncherTests: XCTestCase {
 
         XCTAssertNil(
             launcher.runningPid(profileDir: profileDir),
-            "yardımcı süreçler ana süreç sayılmamalı"
+            "helper processes should not count as the main process"
         )
     }
 
@@ -107,7 +107,7 @@ final class LauncherTests: XCTestCase {
         let lock = profileDir.appendingPathComponent("SingletonLock")
         try FileManager.default.createSymbolicLink(
             at: lock,
-            withDestinationURL: URL(fileURLWithPath: "serdar-mbp-4242")
+            withDestinationURL: URL(fileURLWithPath: "macbook-4242")
         )
 
         XCTAssertEqual(makeLauncher().lockHolderPid(profileDir: profileDir), 4242)
@@ -132,9 +132,9 @@ final class LauncherTests: XCTestCase {
 
         XCTAssertThrowsError(try launcher.launch(request)) { error in
             guard case let .runtime(message) = error as? OrchestratorError else {
-                return XCTFail("runtime bekleniyordu: \(error)")
+                return XCTFail("expected runtime: \(error)")
             }
-            XCTAssertTrue(message.contains("Unable to find application"), "open hatası aktarılmalı: \(message)")
+            XCTAssertTrue(message.contains("Unable to find application"), "the open error should be surfaced: \(message)")
         }
     }
 
@@ -160,7 +160,7 @@ final class LauncherTests: XCTestCase {
 
     func testRunningPidReturnsNilWhenNoProcessMatches() {
         let launcher = makeLauncher(entries: [
-            (100, "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/başka")
+            (100, "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=/other")
         ])
 
         XCTAssertNil(launcher.runningPid(profileDir: profileDir))
@@ -171,7 +171,7 @@ final class LauncherTests: XCTestCase {
             (100, "/Applications/Claude.app/Contents/MacOS/Claude --user-data-dir=\(profileDir.path)2")
         ])
 
-        XCTAssertNil(launcher.runningPid(profileDir: profileDir), "farklı profil eşleşmemeli")
+        XCTAssertNil(launcher.runningPid(profileDir: profileDir), "a different profile should not match")
     }
 
     func testRunningPidIgnoresProcessesThatAreNotClaude() {

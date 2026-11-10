@@ -1,8 +1,8 @@
 import OrchestratorCore
 import Foundation
 
-/// Argümansız `claude-orchestrator`: profil listesi → profil eylemleri,
-/// listenin altında "New profile".
+/// `claude-orchestrator` with no arguments: profile list → profile actions,
+/// with "New profile" below the list.
 enum HomeInteractive {
     static func run() throws {
         let ctl = Orchestrator()
@@ -12,10 +12,10 @@ enum HomeInteractive {
 
         while true {
             guard let ui = TerminalUI() else {
-                throw OrchestratorError.usage("komut gerekli (yardım: claude-orchestrator help)")
+                throw OrchestratorError.usage("a command is required (help: claude-orchestrator help)")
             }
-            // Ekranlar terminal kipini bırakması gereken bir eylemle döner
-            // (giriş, oturum taşıma); o eylem ana ekranda çalışır.
+            // Screens return with an action that has to leave raw terminal mode
+            // (sign-in, session move); it runs on the normal screen.
             let next: Exit
             if openProjects, let exit = ProjectsInteractive.run(ctl: ctl, ui: ui) {
                 next = exit
@@ -47,10 +47,10 @@ enum HomeInteractive {
 
     enum Exit {
         case quit
-        /// Terminal kipinde çalışacak eylem; sonra Projects ekranına dönülsün mü?
+        /// An action to run in normal terminal mode; return to the Projects screen afterwards?
         case outside(() throws -> Void, reopenProjects: Bool)
         case signIn(String)
-        /// Oturum, hedef, taşıma mı (değilse kopya).
+        /// Session, target, and whether it is a move (otherwise a copy).
         case transfer(LocatedSession, String, Bool)
     }
 
@@ -59,7 +59,7 @@ enum HomeInteractive {
         var isError: Bool
     }
 
-    /// Terminal kipinde çalışan bir eylem; bitince Enter beklenir.
+    /// Runs an action in normal terminal mode, then waits for Enter.
     static func runOutside(_ action: () throws -> Void) {
         do {
             try action()
@@ -70,7 +70,7 @@ enum HomeInteractive {
         _ = readLine()
     }
 
-    // MARK: - Ana ekran
+    // MARK: - Home screen
 
     private static func home(ctl: Orchestrator, ui: TerminalUI, message: inout Message?, focus: inout String?) -> Exit {
         while true {
@@ -105,7 +105,7 @@ enum HomeInteractive {
                 if let created = newProfile(ctl: ctl, ui: ui) {
                     focus = created
                     message = Message(text: "Created profile \(display(created)).", isError: false)
-                    // Yeni profil hemen eylem ekranında açılır (başlat / giriş).
+                    // A new profile opens straight in its action screen (start / log in).
                     if let exit = profileMenu(created, ctl: ctl, ui: ui, message: &message) { return exit }
                 }
                 continue
@@ -155,25 +155,25 @@ enum HomeInteractive {
         return lines
     }
 
-    // MARK: - Profil eylemleri
+    // MARK: - Profile actions
 
     private enum Action: String {
         case start = "Start"
         case stop = "Stop"
         case restart = "Restart"
         case logIn = "Log in"
-        /// Giriş yapılmış profilde: oturum düşmüşse ya da hesap değişecekse.
+        /// On a logged-in profile: when the session has expired or the account should change.
         case logInAgain = "Log in again…"
         case sessions = "Sessions…"
         case back = "Back"
     }
 
-    /// `nil` → ana ekrana dön; aksi halde terminal kipinde çalışacak eylem.
+    /// `nil` → back to the home screen; otherwise an action to run in normal terminal mode.
     private static func profileMenu(_ name: String, ctl: Orchestrator, ui: TerminalUI, message: inout Message?) -> Exit? {
         while true {
             guard let status = try? ctl.status(name: name) else { return nil }
-            // Giriş yapılmamış profilde yapılabilecek tek anlamlı şey giriş
-            // (başlatmayı da giriş akışı yapar); diğer eylemler girişten sonra çıkar.
+            // On a profile that isn't logged in, logging in is the only useful action
+            // (the login flow also starts it); the other actions appear after login.
             let actions: [Action] = status.accountSignedIn
                 ? (status.isRunning ? [.stop, .restart] : [.start]) + [.sessions, .logInAgain, .back]
                 : [.logIn]
@@ -215,7 +215,7 @@ enum HomeInteractive {
                     return "Restarted \(display(name)) (pid \(started.pid))."
                 }
             case .logIn, .logInAgain:
-                // Giriş sırasında diğer çalışan instance'lar kapatılır.
+                // The other running instances are closed during login.
                 let others = ((try? ctl.list(includeSizes: false)) ?? [])
                     .filter { $0.name != name && $0.isRunning }.map(\.name)
                 if let blocker = hostBlocker(ctl: ctl, stopping: others + [name]) {
@@ -232,9 +232,9 @@ enum HomeInteractive {
         }
     }
 
-    // MARK: - Oturumlar
+    // MARK: - Sessions
 
-    /// Profilin oturumları: ara → seç → kopyala / taşı.
+    /// The profile's sessions: search → pick → copy / move.
     private static func sessionsScreen(_ name: String, ctl: Orchestrator, ui: TerminalUI, message: inout Message?) -> Exit? {
         let sessions = (try? ctl.sessions(instance: name)) ?? []
         guard !sessions.isEmpty else {
@@ -259,7 +259,7 @@ enum HomeInteractive {
         case back = "Back"
     }
 
-    /// Oturum ayrıntısı + eylemler. `nil` → oturum listesine dön.
+    /// Session details + actions. `nil` → back to the session list.
     private static func sessionMenu(_ located: LocatedSession, ctl: Orchestrator, ui: TerminalUI) -> Exit? {
         let actions: [SessionAction] = [.copy, .move, .back]
         var picker = PickerModel(items: actions.map(\.rawValue), searchable: false)
@@ -364,7 +364,7 @@ enum HomeInteractive {
         return lines
     }
 
-    /// Kısa eylemler ekranda çalışır; sonuç ana/eylem ekranında mesaj olur.
+    /// Short actions run on screen; the result becomes a message on the home/action screen.
     private static func perform(_ progress: String, ui: TerminalUI, _ body: () throws -> String) -> Message {
         ui.draw([Style.dim + progress + Style.reset])
         do {
@@ -396,9 +396,9 @@ enum HomeInteractive {
         }
     }
 
-    // MARK: - Yeni profil
+    // MARK: - New profile
 
-    /// Oluşturulan profilin adı; vazgeçilirse `nil`.
+    /// The name of the created profile; `nil` if cancelled.
     private static func newProfile(ctl: Orchestrator, ui: TerminalUI) -> String? {
         textInput(
             ui: ui,
@@ -416,8 +416,8 @@ enum HomeInteractive {
         }
     }
 
-    /// Tek satırlık metin girişi. `submit` hata metni döndürürse ekranda
-    /// kalınır; `nil` döndürürse girilen değer döner. Esc → `nil`.
+    /// Single-line text input. If `submit` returns an error text, the screen
+    /// stays; if it returns `nil`, the entered value is returned. Esc → `nil`.
     static func textInput(
         ui: TerminalUI,
         title: String,
@@ -464,11 +464,11 @@ enum HomeInteractive {
         }
     }
 
-    // MARK: - Yardımcılar
+    // MARK: - Helpers
 
-    /// Bu terminal, kapatılacak instance'lardan birinin içinde mi çalışıyor?
-    /// (Code sekmesi terminali, Claude Code aracı.) Öyleyse kapanış bu komutu
-    /// da sonlandırır.
+    /// Is this terminal running inside one of the instances about to be closed
+    /// (a Code tab terminal, a Claude Code tool)? If so, closing it would kill
+    /// this command too.
     static func hostBlocker(ctl: Orchestrator, stopping names: [String]) -> String? {
         guard let configDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"] else { return nil }
         let current = URL(fileURLWithPath: configDir).standardizedFileURL.path

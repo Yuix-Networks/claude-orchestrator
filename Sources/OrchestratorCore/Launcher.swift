@@ -1,14 +1,14 @@
 import Foundation
 
-/// Bir Claude instance'ı başlatmak için gereken bilgiler.
+/// Everything needed to launch a Claude instance.
 public struct LaunchRequest: Equatable {
-    /// Hedef uygulama bundle yolu (örn. `/Applications/Claude.app`).
+    /// Path of the target app bundle (e.g. `/Applications/Claude.app`).
     public var appPath: String
-    /// Electron profili (`--user-data-dir`).
+    /// Electron profile (`--user-data-dir`).
     public var profileDir: String
-    /// Claude Code yapılandırma dizini (`CLAUDE_CONFIG_DIR`).
+    /// Claude Code config directory (`CLAUDE_CONFIG_DIR`).
     public var codeDir: String
-    /// Uygulamaya ek olarak geçirilecek argümanlar (örn. açılacak klasör).
+    /// Extra arguments passed to the app (e.g. a folder to open).
     public var extraArgs: [String]
 
     public init(appPath: String, profileDir: String, codeDir: String, extraArgs: [String] = []) {
@@ -19,14 +19,14 @@ public struct LaunchRequest: Equatable {
     }
 }
 
-/// Instance başlatma davranışı. Testlerde sahte uygulanabilir.
+/// Instance launch behaviour. Tests can supply a fake.
 public protocol Launching: AnyObject {
     func launchArguments(_ request: LaunchRequest) -> [String]
     func isProfileLocked(profileDir: URL) -> Bool
     func lockHolderPid(profileDir: URL) -> Int32?
     func runningPid(profileDir: URL) -> Int32?
     func launch(_ request: LaunchRequest) throws
-    /// `--user-data-dir` olmadan çalışan (varsayılan profilli) Claude'un pid'i.
+    /// Pid of the Claude running without `--user-data-dir` (the default profile).
     func runningDefaultPid() -> Int32?
 }
 
@@ -34,7 +34,7 @@ public extension Launching {
     func runningDefaultPid() -> Int32? { nil }
 }
 
-/// Claude Desktop instance'larını başlatır, süreçlerini bulur ve kilitleri denetler.
+/// Launches Claude Desktop instances, finds their processes and checks profile locks.
 public final class Launcher {
     public static let defaultAppPath = "/Applications/Claude.app"
 
@@ -55,11 +55,11 @@ public final class Launcher {
         self.openPath = openPath
     }
 
-    /// `open` komutunun argüman listesi (program adı dahil).
+    /// Argument list for the `open` command (including the program name).
     ///
-    /// Sıra önemlidir: `--env` `--args`'tan **önce** gelmelidir. `open --args`
-    /// sonrasındaki her şey uygulamaya argv olarak gider; `--env` yanlış yerde
-    /// kalırsa uygulama `--env` ve değerini argv'sında görür.
+    /// Order matters: `--env` must come **before** `--args`. Everything after
+    /// `open --args` is passed to the app as argv; if `--env` ends up in the
+    /// wrong place, the app sees `--env` and its value in its argv.
     public func launchArguments(_ request: LaunchRequest) -> [String] {
         var arguments = [
             "open", "-n", "-a", request.appPath,
@@ -70,16 +70,16 @@ public final class Launcher {
         return arguments
     }
 
-    /// `open` programına verilecek argümanlar (program adı hariç).
+    /// Arguments for the `open` program (excluding the program name).
     public func openArguments(_ request: LaunchRequest) -> [String] {
         Array(launchArguments(request).dropFirst())
     }
 
-    /// Profil başka bir süreç tarafından kullanılıyor mu? (Chromium `SingletonLock`)
+    /// Is the profile in use by another process? (Chromium `SingletonLock`)
     ///
-    /// Chromium kilidi bir **sembolik bağdır** (`<hostname>-<pid>` hedefine
-    /// işaret eder); hedefi diskte var olmadığı için `fileExists` bağı takip
-    /// edip `false` döner. Bu yüzden bağın kendisi kontrol edilir.
+    /// The Chromium lock is a **symbolic link** (pointing at `<hostname>-<pid>`);
+    /// its target doesn't exist on disk, so `fileExists` follows the link and
+    /// returns `false`. That's why the link itself is checked.
     public func isProfileLocked(profileDir: URL) -> Bool {
         let lock = profileDir.appendingPathComponent("SingletonLock").path
         if (try? fileManager.destinationOfSymbolicLink(atPath: lock)) != nil {
@@ -88,9 +88,9 @@ public final class Launcher {
         return fileManager.fileExists(atPath: lock)
     }
 
-    /// Kilidi tutan sürecin pid'i (`SingletonLock` hedefi `<hostname>-<pid>`).
+    /// Pid of the process holding the lock (the `SingletonLock` target is `<hostname>-<pid>`).
     ///
-    /// Kilit yoksa veya hedefi okunamıyorsa `nil`.
+    /// `nil` if there is no lock or its target can't be read.
     public func lockHolderPid(profileDir: URL) -> Int32? {
         let lock = profileDir.appendingPathComponent("SingletonLock")
         let target = try? fileManager.destinationOfSymbolicLink(atPath: lock.path)
@@ -99,10 +99,10 @@ public final class Launcher {
         return Int32(suffix)
     }
 
-    /// Verilen profili kullanan Claude **ana** sürecinin pid'i (yoksa `nil`).
+    /// Pid of the **main** Claude process using the given profile (`nil` if none).
     ///
-    /// Yardımcı süreçler (renderer/gpu) aynı `--user-data-dir` işaretini taşır;
-    /// bu yüzden argv'nin ilk token'ı tam olarak eşleşmelidir.
+    /// Helper processes (renderer/gpu) carry the same `--user-data-dir` marker,
+    /// so the first argv token has to match exactly.
     public func runningPid(profileDir: URL) -> Int32? {
         let marker = "--user-data-dir=\(profileDir.path)"
         let executable = "\(appPath)/Contents/MacOS/Claude"
@@ -112,7 +112,7 @@ public final class Launcher {
         return matches.map(\.pid).min()
     }
 
-    /// Varsayılan profili kullanan (instance olmayan) Claude ana sürecinin pid'i.
+    /// Pid of the main Claude process using the default profile (not an instance).
     public func runningDefaultPid() -> Int32? {
         let executable = "\(appPath)/Contents/MacOS/Claude"
         return processListing.processes()
@@ -121,7 +121,7 @@ public final class Launcher {
             .min()
     }
 
-    /// Instance'ı başlatır.
+    /// Launches the instance.
     public func launch(_ request: LaunchRequest) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: openPath)
@@ -134,7 +134,7 @@ public final class Launcher {
         do {
             try process.run()
         } catch {
-            throw OrchestratorError.runtime("instance başlatılamadı: \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't start instance: \(error.localizedDescription)")
         }
 
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
@@ -143,20 +143,20 @@ public final class Launcher {
         guard process.terminationStatus == 0 else {
             let message = String(data: errorData, encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let detail = message.isEmpty ? "open \(process.terminationStatus) ile sonlandı" : message
-            throw OrchestratorError.runtime("instance başlatılamadı: \(detail)")
+            let detail = message.isEmpty ? "open exited with \(process.terminationStatus)" : message
+            throw OrchestratorError.runtime("couldn't start instance: \(detail)")
         }
     }
 
-    /// Komut satırının ilk token'ı (executable yolu).
+    /// First token of the command line (the executable path).
     private func executableName(of command: String) -> String {
         guard let space = command.firstIndex(of: " ") else { return command }
         return String(command[command.startIndex..<space])
     }
 
-    /// `--user-data-dir=<yol>` işaretinin komut içinde tam olarak geçtiğini kontrol eder.
+    /// Checks that the `--user-data-dir=<path>` marker appears in the command as an exact token.
     ///
-    /// `--user-data-dir=/a` ile `--user-data-dir=/ab` birbirine karışmamalıdır.
+    /// `--user-data-dir=/a` must not be confused with `--user-data-dir=/ab`.
     private func containsExactMarker(_ command: String, _ marker: String) -> Bool {
         var searchRange = command.startIndex..<command.endIndex
         while let range = command.range(of: marker, range: searchRange) {

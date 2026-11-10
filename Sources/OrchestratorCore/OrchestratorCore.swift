@@ -1,7 +1,7 @@
-/// OrchestratorCore — `claude-orchestrator` aracının çekirdek mantığı.
+/// OrchestratorCore — the core logic of `claude-orchestrator`.
 ///
-/// Bu modül AppKit'e bağımlı değildir; tüm dosya sistemi, süreç ve JSON
-/// işlemleri burada yaşar ve XCTest ile test edilir. Menü çubuğu arayüzü
-/// ayrı bir modüldedir (OrchestratorAgent).
+/// This module does not depend on AppKit; all file system, process and JSON
+/// work lives here and is tested with XCTest. The menu bar UI lives in a
+/// separate module (OrchestratorAgent).
 ///
-/// Global kural: `/Applications/Claude.app` bundle'ine asla yazılmaz.
+/// Global rule: nothing is ever written to the `/Applications/Claude.app` bundle.

@@ -16,37 +16,36 @@ jobs:
       - name: Check version matches tag
         run: |
           grep -q "static let current = \"${GITHUB_REF_NAME#v}\"" Sources/claude-orchestrator/Output.swift \
-            || { echo "AppVersion.current etiketle (${GITHUB_REF_NAME}) aynı değil"; exit 1; }
+            || { echo "AppVersion.current does not match the tag (${GITHUB_REF_NAME})"; exit 1; }
 
       - name: Test
         run: swift test
 
       - name: Build universal binary
-        # `swift build --arch` birleşik (universal) ürün üretmiyor; xcodebuild
-        # universal binary üretir.
+        # `swift build --arch` does not produce a universal binary; xcodebuild does.
         run: |
           xcodebuild -scheme claude-orchestrator -configuration Release \
             -destination 'generic/platform=macOS' \
             -derivedDataPath .build/xcode \
             ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build
           mkdir -p .build/artifacts
-          # Kesin yol: `find … | head -1` dSYM içindeki DWARF dosyasını seçebiliyor
-          # (v0.1.0–v0.2.1 sürümleri bu yüzden çalışmayan bir dosya yayınladı).
+          # Use the exact path: `find … | head -1` can pick the DWARF file inside the dSYM
+          # (that is why v0.1.0–v0.2.1 shipped a file that did not run).
           BIN=".build/xcode/Build/Products/Release/claude-orchestrator"
-          file "$BIN" | grep -q "executable" || { file "$BIN"; echo "çalıştırılabilir değil"; exit 1; }
-          # `install -m 755`: çalıştırma izni tarball'a girmeli (v0.2.0'da `cp` ile kayboldu).
+          file "$BIN" | grep -q "executable" || { file "$BIN"; echo "not an executable"; exit 1; }
+          # `install -m 755`: the execute bit must make it into the tarball (`cp` lost it in v0.2.0).
           install -m 755 "$BIN" .build/artifacts/claude-orchestrator
           test -x .build/artifacts/claude-orchestrator
           lipo -info .build/artifacts/claude-orchestrator
           .build/artifacts/claude-orchestrator --version | grep -q "${GITHUB_REF_NAME#v}" \
-            || { echo "binary çalışmadı ya da sürümü yanlış"; exit 1; }
+            || { echo "binary did not run, or its version is wrong"; exit 1; }
 
       - name: Create archive and checksum
         run: |
           cd .build/artifacts
           tar -czf "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz" claude-orchestrator
           tar -tvzf "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz" | grep -q '^-rwx' \
-            || { echo "tarball'daki binary çalıştırılabilir değil"; exit 1; }
+            || { echo "the binary in the tarball is not executable"; exit 1; }
           shasum -a 256 "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz" > "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz.sha256"
           cat "claude-orchestrator-${GITHUB_REF_NAME#v}.tar.gz.sha256"
 

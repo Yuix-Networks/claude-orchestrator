@@ -1,11 +1,11 @@
 import OrchestratorCore
 import Foundation
 
-/// `claude-orchestrator logs <ad> [-n N] [-f]`
+/// `claude-orchestrator logs <name> [-n N] [-f]`
 enum LogsCommand {
     static func run(_ args: [String]) throws {
         let parsed = try Arguments(args, allowed: ["lines", "follow"])
-        let name = try parsed.requirePositional(0, name: "instance adı", command: "logs")
+        let name = try parsed.requirePositional(0, name: "instance name", command: "logs")
         let limit = Int(parsed.optionalFlag("lines") ?? "50") ?? 50
         let ctl = Orchestrator()
 
@@ -15,7 +15,7 @@ enum LogsCommand {
 
         guard parsed.has("follow") else { return }
 
-        // Canlı takip: yeni satırları yazdır (dosya döndürme algılanır).
+        // Live follow: print new lines (log rotation is detected).
         let follower = LogFollower(url: LogReader().logFile)
         while true {
             Thread.sleep(forTimeInterval: 1)

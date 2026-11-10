@@ -4,18 +4,18 @@ import Foundation
 /// `claude-orchestrator session <list|show|copy|move|last> …`
 enum SessionCommand {
     static let usage = """
-    session list [--instance <ad>] [--project <yol>] [--running] [--json]
-    session show <oturum-id> [--instance <ad>] [--json]
-    session copy <oturum-id> --to <instance> [--instance <kaynak>] [--force] [--json]
-    session move <oturum-id> --to <instance> [--instance <kaynak>] [--force] [--json]
-    session move [<oturum-id>] [--to <instance>] [--instance <kaynak>] [--yes]
-                 (kimlik ya da --to verilmezse etkileşimli: ara, seç, onayla)
+    session list [--instance <name>] [--project <path>] [--running] [--json]
+    session show <session-id> [--instance <name>] [--json]
+    session copy <session-id> --to <instance> [--instance <source>] [--force] [--json]
+    session move <session-id> --to <instance> [--instance <source>] [--force] [--json]
+    session move [<session-id>] [--to <instance>] [--instance <source>] [--yes]
+                 (interactive without an id or --to: search, pick, confirm)
     session last --from <instance> --to <instance> [--copy] [--force] [--json]
     """
 
     static func run(_ args: [String]) throws {
         guard let sub = args.first else {
-            throw OrchestratorError.usage("session: alt komut gerekli\n\(usage)")
+            throw OrchestratorError.usage("session: a subcommand is required\n\(usage)")
         }
         let rest = Array(args.dropFirst())
         switch sub {
@@ -25,7 +25,7 @@ enum SessionCommand {
         case "move": try transfer(rest, move: true, command: "session move")
         case "last": try last(rest)
         default:
-            throw OrchestratorError.usage("session: bilinmeyen alt komut: \(sub)\n\(usage)")
+            throw OrchestratorError.usage("session: unknown subcommand: \(sub)\n\(usage)")
         }
     }
 
@@ -44,12 +44,12 @@ enum SessionCommand {
             return
         }
         if sessions.isEmpty {
-            Output.line("oturum yok")
+            Output.line("no sessions")
             return
         }
         Output.line(
-            ListCommand.pad("INSTANCE", 12) + ListCommand.pad("OTURUM", 10) + ListCommand.pad("SON ETKİNLİK", 18)
-            + ListCommand.pad("MESAJ", 7) + ListCommand.pad("PROJE", 28) + "BAŞLIK / İLK İSTEM"
+            ListCommand.pad("INSTANCE", 12) + ListCommand.pad("SESSION", 10) + ListCommand.pad("LAST ACTIVE", 18)
+            + ListCommand.pad("MSGS", 7) + ListCommand.pad("PROJECT", 28) + "TITLE / FIRST PROMPT"
         )
         for located in sessions {
             let session = located.session
@@ -68,7 +68,7 @@ enum SessionCommand {
 
     static func show(_ args: [String]) throws {
         let parsed = try Arguments(args, allowed: ["instance", "json"])
-        let id = try parsed.requirePositional(0, name: "oturum kimliği", command: "session show")
+        let id = try parsed.requirePositional(0, name: "session id", command: "session show")
         let located = try Orchestrator().findSession(id, instance: parsed.optionalFlag("instance"))
 
         if parsed.has("json") {
@@ -78,29 +78,29 @@ enum SessionCommand {
             return
         }
         let session = located.session
-        Output.line("oturum:       \(session.id)")
+        Output.line("session:      \(session.id)")
         Output.line("instance:     \(located.endpoint.name)")
-        if let title = session.title { Output.line("başlık:       \(title)") }
-        Output.line("çalışma dizini: \(session.cwd ?? "-")")
-        Output.line("başlangıç:    \(session.startedAt.map(shortDate) ?? "-")")
-        Output.line("son etkinlik: \(session.endedAt.map(shortDate) ?? "-")")
+        if let title = session.title { Output.line("title:        \(title)") }
+        Output.line("directory:    \(session.cwd ?? "-")")
+        Output.line("started:      \(session.startedAt.map(shortDate) ?? "-")")
+        Output.line("last active:  \(session.endedAt.map(shortDate) ?? "-")")
         if let start = session.startedAt, let end = session.endedAt {
-            Output.line("süre:         \(duration(end.timeIntervalSince(start)))")
+            Output.line("duration:     \(duration(end.timeIntervalSince(start)))")
         }
-        Output.line("mesaj:        \(session.messageCount)")
-        Output.line("CLI sürümü:   \(session.cliVersion ?? "-")")
-        Output.line("boyut:        \(ByteCountFormatter.string(fromByteCount: session.sizeBytes, countStyle: .file))")
+        Output.line("messages:     \(session.messageCount)")
+        Output.line("CLI version:  \(session.cliVersion ?? "-")")
+        Output.line("size:         \(ByteCountFormatter.string(fromByteCount: session.sizeBytes, countStyle: .file))")
         Output.line("transcript:   \(session.transcript.path)")
-        if let first = session.firstPrompt { Output.line("ilk istem:    \(first)") }
-        if let last = session.lastPrompt, last != session.firstPrompt { Output.line("son istem:    \(last)") }
-        Output.line("devam et:     CLAUDE_CONFIG_DIR=\"\(located.endpoint.codeDir.path)\" claude --resume \(session.id)")
+        if let first = session.firstPrompt { Output.line("first prompt: \(first)") }
+        if let last = session.lastPrompt, last != session.firstPrompt { Output.line("last prompt:  \(last)") }
+        Output.line("resume:       CLAUDE_CONFIG_DIR=\"\(located.endpoint.codeDir.path)\" claude --resume \(session.id)")
     }
 
     // MARK: - copy / move
 
     static func transfer(_ args: [String], move: Bool, command: String) throws {
         let parsed = try Arguments(args, allowed: Set(["instance", "to", "force", "json"] + (move ? ["yes"] : [])))
-        // Etkileşimli taşıma: oturum ya da hedef verilmemişse ekranlarla seçilir.
+        // Interactive move: if the session or target is missing, pick them on screen.
         if move, parsed.positionals.isEmpty || parsed.optionalFlag("to") == nil,
            !parsed.has("json"), !parsed.has("force") {
             try SessionMoveInteractive.run(
@@ -111,7 +111,7 @@ enum SessionCommand {
             )
             return
         }
-        let id = try parsed.requirePositional(0, name: "oturum kimliği", command: command)
+        let id = try parsed.requirePositional(0, name: "session id", command: command)
         let to = try parsed.requireFlag("to", command: command)
 
         let result = try Orchestrator().transferSession(
@@ -134,7 +134,7 @@ enum SessionCommand {
         report(result, to: to, move: move, json: parsed.has("json"))
     }
 
-    // MARK: - Çıktı
+    // MARK: - Output
 
     static func report(_ result: TransferResult, to: String, move: Bool, json: Bool) {
         if json {
@@ -151,14 +151,14 @@ enum SessionCommand {
             return
         }
         for warning in result.warnings {
-            Output.line("uyarı: \(warning)")
+            Output.line("warning: \(warning)")
         }
-        Output.line("\(move ? "taşındı" : "kopyalandı"): \(result.session.id) → \(to)")
+        Output.line("\(move ? "moved" : "copied"): \(result.session.id) → \(to)")
         if let backup = result.backup {
-            Output.line("  kaynağın yedeği: \(backup.path)")
+            Output.line("  source backup: \(backup.path)")
         }
         if result.desktopMetadata != nil {
-            Output.line("  Claude Desktop kenar çubuğuna eklendi (instance yeniden başlatılınca görünür)")
+            Output.line("  added to the Claude Desktop sidebar (shows after the instance restarts)")
         }
     }
 
@@ -192,7 +192,7 @@ enum SessionCommand {
     static func duration(_ seconds: TimeInterval) -> String {
         let total = Int(seconds)
         let hours = total / 3600, minutes = (total % 3600) / 60
-        return hours > 0 ? "\(hours) sa \(minutes) dk" : "\(minutes) dk"
+        return hours > 0 ? "\(hours) h \(minutes) min" : "\(minutes) min"
     }
 
     static func shortPath(_ path: String, width: Int) -> String {

@@ -1,15 +1,15 @@
 import Foundation
 
-/// `start` komutunun sonucu.
+/// Result of the `start` command.
 public struct StartResult: Equatable {
     public var instance: Instance
-    /// Claude ana sürecinin pid'i.
+    /// pid of the main Claude process.
     public var pid: Int32
-    /// Instance zaten çalışıyorsa `true` (yeniden başlatılmadı).
+    /// `true` if the instance was already running (it was not restarted).
     public var alreadyRunning: Bool
-    /// Yapılan profil tohumlaması (workdir yoksa `nil`).
+    /// Profile seeding that was done (`nil` when there is no workdir).
     public var seed: SeedResult?
-    /// Kullanıcıya gösterilmesi gereken uyarı (örn. workdir bulunamadı).
+    /// Warning to show the user (e.g. workdir not found).
     public var warning: String?
 
     public init(
@@ -27,11 +27,11 @@ public struct StartResult: Equatable {
     }
 }
 
-/// `stop` komutunun sonucu.
+/// Result of the `stop` command.
 public struct StopResult: Equatable {
-    /// Kapatılan çalışan bir süreç var mıydı?
+    /// Was there a running process to shut down?
     public var wasRunning: Bool
-    /// SIGTERM yetmediyse SIGKILL kullanıldı mı?
+    /// Was SIGKILL needed because SIGTERM was not enough?
     public var forced: Bool
 
     public init(wasRunning: Bool, forced: Bool) {
@@ -40,7 +40,7 @@ public struct StopResult: Equatable {
     }
 }
 
-/// Bir instance'ın anlık durumu.
+/// Current status of an instance.
 public struct InstanceStatus: Equatable {
     public var name: String
     public var workdir: String?
@@ -48,7 +48,7 @@ public struct InstanceStatus: Equatable {
     public var pid: Int32?
     public var startedAt: Date?
     public var profileSizeBytes: Int64
-    /// Profilde oturum (cookie) dosyası var mı?
+    /// Does the profile have a sign-in (cookie) file?
     public var accountSignedIn: Bool
 
     public init(
@@ -70,18 +70,18 @@ public struct InstanceStatus: Equatable {
     }
 }
 
-/// `open` komutunda hedeflenen klasör.
+/// Folder targeted by the `open` command.
 public enum OpenTarget: String, Equatable {
     case workdir
     case profile
 }
 
-/// `signin` komutunun rehberi.
+/// Guide for the `signin` command.
 public struct SigninPlan: Equatable {
     public var instance: String
-    /// `claude://` handler'ın hangi instance'a gittiği (ölçülemiyorsa `nil`).
+    /// Which instance the `claude://` handler goes to (`nil` if it cannot be determined).
     public var handlerInstance: String?
-    /// Çalışan diğer instance'lar (handler çakışması riski).
+    /// Other running instances (risk of a handler conflict).
     public var otherInstancesRunning: [String]
     public var instructions: [String]
 
@@ -98,7 +98,7 @@ public struct SigninPlan: Equatable {
     }
 }
 
-/// `claude-orchestrator` iş mantığının giriş noktası.
+/// Entry point for the `claude-orchestrator` logic.
 public final class Orchestrator {
     public let paths: Paths
     public let store: InstanceStore
@@ -106,9 +106,9 @@ public final class Orchestrator {
     public let seeder: ProfileSeeder
     public let logReader: LogReader
     public let appPath: String
-    /// Varsayılan (instance olmayan) Claude kurulumunun config dizini (`~/.claude`).
+    /// Config directory of the default (non-instance) Claude install (`~/.claude`).
     public let defaultCodeDir: URL
-    /// Varsayılan Claude kurulumunun Electron profili.
+    /// Electron profile of the default Claude install.
     public let defaultProfileDir: URL
 
     public init(
@@ -132,13 +132,13 @@ public final class Orchestrator {
 
     // MARK: - new
 
-    /// Yeni instance oluşturur (config + profil dizinleri).
+    /// Creates a new instance (config + profile directories).
     public func new(name: String, workdir: String?) throws -> Instance {
         try validateNewName(name)
 
         let config = try store.load()
         guard config.instances[name] == nil else {
-            throw OrchestratorError.runtime("instance '\(name)' zaten var")
+            throw OrchestratorError.runtime("instance '\(name)' already exists")
         }
 
         let instance = Instance(name: name, workdir: workdir)
@@ -147,12 +147,12 @@ public final class Orchestrator {
         try FileManager.default.createDirectory(at: paths.profileDir(name), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: paths.codeDir(name), withIntermediateDirectories: true)
 
-        // Profil tohumlanır (güvenli klasörler). Session preset hesap bilinmiyorsa
-        // yazılamaz; o aşamada `start` yeniden dener.
+        // Seed the profile (trusted folders). The session preset can't be written
+        // until the account is known; `start` tries again then.
         if let workdir, FileManager.default.fileExists(atPath: workdir) {
             _ = try? seeder.seed(profileDir: paths.profileDir(name), workdir: workdir)
         }
-        // Kayıtlı projeler: güvenli klasörler hemen, ortamlar ilk girişten sonra.
+        // Registered projects: trusted folders now, environments after the first sign-in.
         _ = try? syncProjects(instance: name)
         ensureSharedMemory(name)
 
@@ -161,14 +161,14 @@ public final class Orchestrator {
 
     // MARK: - start
 
-    /// Instance'ı başlatır.
+    /// Starts the instance.
     public func start(name: String, folder: String?) throws -> StartResult {
         let instance = try store.instance(named: name)
         let profileDir = paths.profileDir(name)
         let codeDir = paths.codeDir(name)
 
         if let pid = launcher.runningPid(profileDir: profileDir) {
-            // Durum dosyası kaybolmuş olabilir; yeniden yaz.
+            // The state file may be gone; write it again.
             try? JSONFile.write(
                 InstanceState(pid: pid, startedAt: Date(), claudeVersion: ClaudeApp.version(appPath: appPath)),
                 to: paths.stateFile(name)
@@ -183,12 +183,12 @@ public final class Orchestrator {
         }
 
         if launcher.isProfileLocked(profileDir: profileDir) {
-            // Kilit, çökmüş bir instance'dan kalmış olabilir: kilidi tutan pid
-            // artık yaşamıyorsa kilit bayattır, temizlenip devam edilir.
+            // The lock may be left over from a crashed instance: if the pid holding
+            // it is no longer alive, the lock is stale, so remove it and carry on.
             let holder = launcher.lockHolderPid(profileDir: profileDir)
             if let holder, ProcessSignal.isAlive(holder) {
                 throw OrchestratorError.runtime(
-                    "profil kilitli: \(profileDir.path) (SingletonLock) — pid \(holder) bu profili kullanıyor"
+                    "profile is locked: \(profileDir.path) (SingletonLock) — pid \(holder) is using it"
                 )
             }
             try? FileManager.default.removeItem(at: profileDir.appendingPathComponent("SingletonLock"))
@@ -201,18 +201,18 @@ public final class Orchestrator {
                 do {
                     seed = try seeder.seed(profileDir: profileDir, workdir: workdir)
                 } catch {
-                    // Tohumlama başarısız olsa da instance açılmalı.
-                    warning = "tohumlama başarısız: \(error.localizedDescription)"
+                    // The instance should open even if seeding fails.
+                    warning = "seeding failed: \(error.localizedDescription)"
                 }
             } else {
-                warning = "workdir bulunamadı: \(workdir) — tohumlama atlandı"
+                warning = "workdir not found: \(workdir) — skipped seeding"
             }
         }
 
-        // Kayıtlı projeler her başlatmada uygulanır: giriş sonrası hesap
-        // öğrenilince ortamlar yazılır, Claude'un ezdiği değişiklikler geri gelir.
+        // Registered projects are applied on every start: once the account is known
+        // after sign-in, environments get written, and changes Claude overwrote come back.
         if let failure = (try? syncProjects(instance: name))?.first?.error {
-            warning = [warning, "proje senkronu başarısız: \(failure)"].compactMap { $0 }.joined(separator: "; ")
+            warning = [warning, "project sync failed: \(failure)"].compactMap { $0 }.joined(separator: "; ")
         }
 
         ensureSharedMemory(name)
@@ -227,7 +227,7 @@ public final class Orchestrator {
 
         guard let pid = waitForPid(profileDir: profileDir, timeout: 10) else {
             throw OrchestratorError.runtime(
-                "instance başlatılamadı: süreç bulunamadı (\(profileDir.path))"
+                "couldn't start instance: process not found (\(profileDir.path))"
             )
         }
 
@@ -258,14 +258,14 @@ public final class Orchestrator {
 
     // MARK: - stop
 
-    /// Instance'ı durdurur.
+    /// Stops the instance.
     public func stop(name: String) throws -> StopResult {
         try NameValidator.validate(name)
         let stateFile = paths.stateFile(name)
 
-        // Yalnızca profil işaretiyle doğrulanmış süreç sonlandırılır.
-        // state.json'daki pid PID yeniden kullanımı nedeniyle başka bir sürece
-        // ait olabilir; bu yüzden tek başına güvenilir bir kaynak değildir.
+        // Only a process verified by its profile flag is terminated.
+        // The pid in state.json may belong to another process because of pid
+        // reuse, so it isn't a reliable source on its own.
         guard let pid = launcher.runningPid(profileDir: paths.profileDir(name)) else {
             try? FileManager.default.removeItem(at: stateFile)
             return StopResult(wasRunning: false, forced: false)
@@ -291,16 +291,16 @@ public final class Orchestrator {
 
     // MARK: - remove
 
-    /// Instance'ı siler.
+    /// Removes the instance.
     ///
     /// - Parameters:
-    ///   - purge: `true` ise instance dizini (profil + Claude Code config +
-    ///     oturumlar) de kaldırılır. `false` ise veriler korunur (instance
-    ///     yeniden oluşturulduğunda geri gelir).
-    ///   - force: Instance çalışıyorsa önce durdurulur (durmazsa silinmez).
-    ///   - permanent: `purge` ile birlikte `true` ise veriler kalıcı silinir;
-    ///     `false` (varsayılan) ise Çöp Kutusu'na taşınır ve geri alınabilir.
-    /// - Returns: Veriler Çöp Kutusu'na taşındıysa yeni konumları.
+    ///   - purge: If `true`, the instance directory (profile + Claude Code config +
+    ///     sessions) is removed too. If `false`, the data is kept (it comes back
+    ///     when the instance is created again).
+    ///   - force: If the instance is running, stop it first (it isn't removed if it won't stop).
+    ///   - permanent: With `purge`, `true` deletes the data permanently;
+    ///     `false` (the default) moves it to the Trash so it can be restored.
+    /// - Returns: The new location of the data if it was moved to the Trash.
     @discardableResult
     public func remove(name: String, purge: Bool, force: Bool = false, permanent: Bool = false) throws -> URL? {
         _ = try store.instance(named: name)
@@ -308,13 +308,13 @@ public final class Orchestrator {
         if launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
             guard force else {
                 throw OrchestratorError.runtime(
-                    "instance çalışıyor: \(name) — önce 'claude-orchestrator stop \(name)' çalıştır (durdurup silmek için: --force)"
+                    "instance is running: \(name) — run 'claude-orchestrator stop \(name)' first (or use --force to stop and remove it)"
                 )
             }
-            // Verileri çalışan bir Claude'un altından çekmemek için önce durdurulur.
+            // Stop it first so the data isn't pulled out from under a running Claude.
             _ = try stop(name: name)
             if launcher.runningPid(profileDir: paths.profileDir(name)) != nil {
-                throw OrchestratorError.runtime("instance durdurulamadı: \(name) — silinmedi")
+                throw OrchestratorError.runtime("couldn't stop instance: \(name) — not removed")
             }
         }
 
@@ -330,7 +330,7 @@ public final class Orchestrator {
                         try FileManager.default.trashItem(at: instanceDir, resultingItemURL: &resulting)
                     } catch {
                         throw OrchestratorError.runtime(
-                            "Çöp Kutusu'na taşınamadı: \(instanceDir.path) — \(error.localizedDescription) (kalıcı silmek için: --permanent)"
+                            "couldn't move to Trash: \(instanceDir.path) — \(error.localizedDescription) (use --permanent to delete it permanently)"
                         )
                     }
                     trashedTo = resulting as URL?
@@ -345,7 +345,7 @@ public final class Orchestrator {
 
     // MARK: - list / status
 
-    /// Tüm instance'ların durumu (ada göre sıralı).
+    /// Status of every instance (sorted by name).
     public func list(includeSizes: Bool = true) throws -> [InstanceStatus] {
         let config = try store.load()
         return config.instances.values
@@ -353,7 +353,7 @@ public final class Orchestrator {
             .map { status(for: $0, includeSize: includeSizes) }
     }
 
-    /// Tek instance'ın durumu.
+    /// Status of a single instance.
     public func status(name: String) throws -> InstanceStatus {
         let instance = try store.instance(named: name)
         return status(for: instance)
@@ -365,7 +365,7 @@ public final class Orchestrator {
         let stateFile = paths.stateFile(instance.name)
         let state = try? JSONFile.read(InstanceState.self, from: stateFile)
 
-        // Ölü instance'ın bayat durum dosyasını temizle.
+        // Clean up the stale state file of a dead instance.
         if state != nil && pid == nil {
             try? FileManager.default.removeItem(at: stateFile)
         }
@@ -384,10 +384,10 @@ public final class Orchestrator {
 
     // MARK: - logs
 
-    /// Instance'ın log satırları (paylaşılan log dosyasından filtrelenir).
+    /// Log lines for the instance (filtered from the shared log file).
     ///
-    /// Log dosyası tüm instance'lar arasında paylaşıldığı için ayrım yalnızca
-    /// instance'ın başlangıç zamanıyla yapılabilir (kesin ayrım mümkün değil).
+    /// The log file is shared by all instances, so lines can only be told apart
+    /// by the instance's start time (an exact split isn't possible).
     public func logs(name: String, lines: Int) throws -> [String] {
         _ = try store.instance(named: name)
         let state = try JSONFile.read(InstanceState.self, from: paths.stateFile(name))
@@ -397,7 +397,7 @@ public final class Orchestrator {
 
     // MARK: - open
 
-    /// Instance'ın workdir'ini veya profil klasörünü Finder'da açar.
+    /// Opens the instance's workdir or profile folder in Finder.
     public func open(name: String, target: OpenTarget) throws {
         let instance = try store.instance(named: name)
         let path: URL
@@ -408,7 +408,7 @@ public final class Orchestrator {
             path = paths.profileDir(name)
         }
         guard FileManager.default.fileExists(atPath: path.path) else {
-            throw OrchestratorError.runtime("klasör bulunamadı: \(path.path)")
+            throw OrchestratorError.runtime("folder not found: \(path.path)")
         }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
@@ -416,16 +416,16 @@ public final class Orchestrator {
         do {
             try process.run()
         } catch {
-            throw OrchestratorError.runtime("açılamadı: \(path.path) — \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't open: \(path.path) — \(error.localizedDescription)")
         }
     }
 
     // MARK: - signin
 
-    /// Giriş rehberi: `claude://` handler çakışması riskini raporlar.
+    /// Sign-in guide: reports the risk of a `claude://` handler conflict.
     ///
-    /// `restart` verilirse hedef instance yeniden başlatılır; böylece `claude://`
-    /// handler en son kaydeden instance olur.
+    /// With `restart`, the target instance is restarted so it becomes the last
+    /// one to register the `claude://` handler.
     public func signin(name: String, restart: Bool = false) throws -> SigninPlan {
         let instance = try store.instance(named: name)
         let others = try list()
@@ -438,18 +438,18 @@ public final class Orchestrator {
         }
 
         var instructions = [
-            "1) Hedef instance: \(name)",
-            "2) 'claude://' derin bağlantısı yalnızca tek instance'a gider; diğer instance'ları kapat.",
-            "3) Bu instance'ta 'Sign in' akışını başlat; tarayıcıdan dönüş bu instance'a düşmelidir."
+            "1) Target instance: \(name)",
+            "2) A 'claude://' link only reaches one instance, so quit the other instances.",
+            "3) Start 'Sign in' in this instance; the browser should hand you back to this instance."
         ]
         if !others.isEmpty {
             instructions.insert(
-                "0) Uyarı: şu instance'lar çalışıyor ve handler'a müdahale edebilir: \(others.joined(separator: ", "))",
+                "0) Warning: these instances are running and may take over the handler: \(others.joined(separator: ", "))",
                 at: 0
             )
         }
         if restart {
-            instructions.insert("0) Instance yeniden başlatıldı (handler artık bu instance).", at: 0)
+            instructions.insert("0) Instance restarted (it now owns the handler).", at: 0)
         }
 
         return SigninPlan(
@@ -462,7 +462,7 @@ public final class Orchestrator {
 
     // MARK: - doctor
 
-    /// Sağlık kontrolleri (tüm instance'lar veya tek instance).
+    /// Health checks (all instances or a single one).
     public func doctor(name: String?) throws -> [DoctorCheck] {
         let doctor = Doctor(paths: paths, appPath: appPath)
         var checks = doctor.appChecks()
@@ -471,7 +471,7 @@ public final class Orchestrator {
         let instances: [Instance]
         if let name {
             guard let instance = config.instances[name] else {
-                throw OrchestratorError.notFound("instance '\(name)' bulunamadı")
+                throw OrchestratorError.notFound("instance '\(name)' not found")
             }
             instances = [instance]
         } else {

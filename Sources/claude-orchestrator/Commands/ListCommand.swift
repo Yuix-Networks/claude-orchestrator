@@ -25,15 +25,15 @@ enum ListCommand {
         }
 
         if statuses.isEmpty {
-            Output.line("henüz instance yok — oluşturmak için: claude-orchestrator new <ad> --workdir <yol>")
+            Output.line("no instances yet. Create one with: claude-orchestrator new <name> --workdir <path>")
             return
         }
 
-        Output.line(pad("AD", 16) + pad("DURUM", 10) + pad("PID", 8) + "WORKDIR")
+        Output.line(pad("NAME", 16) + pad("STATUS", 10) + pad("PID", 8) + "WORKDIR")
         for status in statuses {
             Output.line(
                 pad(status.name, 16)
-                + pad(status.isRunning ? "çalışıyor" : "durdu", 10)
+                + pad(status.isRunning ? "running" : "stopped", 10)
                 + pad(status.pid.map(String.init) ?? "-", 8)
                 + (status.workdir ?? "-")
             )

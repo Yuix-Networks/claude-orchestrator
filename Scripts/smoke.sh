@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Canlı uçtan uca doğrulama.
+# Live end-to-end check.
 #
-# Gerçek Claude Desktop instance'ları başlatır, profillerin ayrıştığını doğrular
-# ve tüm adımları temizler. Kullanıcının makinelerinde Claude kurulu olmalıdır.
+# Starts real Claude Desktop instances, verifies that their profiles are separate,
+# and cleans up after every step. Claude must be installed on the machine.
 #
-# Kullanım: ./Scripts/smoke.sh
+# Usage: ./Scripts/smoke.sh
 
 set -uo pipefail
 
@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 
 BIN=".build/release/claude-orchestrator"
 if [ ! -x "$BIN" ]; then
-    echo ">> binary yok, derleniyor..."
+    echo ">> no binary, building..."
     swift build -c release || exit 1
 fi
 
@@ -33,14 +33,14 @@ trap cleanup EXIT
 
 step() { printf '\n== %s ==\n' "$1"; }
 ok()   { printf '   ok    %s\n' "$1"; }
-fail() { printf '   HATA  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+fail() { printf '   FAIL  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 
 profile_dir() {
     echo "$HOME/Library/Application Support/claude-ctl/instances/$1/profile"
 }
 
 json_field() {
-    # $1: json, $2: instance adı, $3: alan
+    # $1: json, $2: instance name, $3: field
     printf '%s' "$1" | python3 -c "
 import json,sys
 data = json.load(sys.stdin)
@@ -53,40 +53,40 @@ for item in data.get('instances', []):
 
 step "new"
 if "$BIN" new "$SMOKE_NAME" --workdir "$WORK" >/dev/null 2>&1; then
-    ok "instance oluşturuldu: $SMOKE_NAME"
+    ok "instance created: $SMOKE_NAME"
 else
-    fail "new başarısız"
+    fail "new failed"
 fi
 
 step "start"
 if "$BIN" start "$SMOKE_NAME" >/dev/null 2>&1; then
-    ok "instance başlatıldı"
+    ok "instance started"
 else
-    fail "start başarısız"
+    fail "start failed"
 fi
 sleep 12
 
-step "profil ayrışması"
+step "profile isolation"
 PROFILE1="$(profile_dir "$SMOKE_NAME")"
 if [ -f "$PROFILE1/Cookies" ]; then
-    ok "profil ayrı: $PROFILE1/Cookies"
+    ok "separate profile: $PROFILE1/Cookies"
 else
-    fail "profil dizininde Cookies yok"
+    fail "no Cookies in the profile directory"
 fi
 
-step "Claude Code yapılandırması ayrışması"
+step "Claude Code config isolation"
 CODE1="$HOME/Library/Application Support/claude-ctl/instances/$SMOKE_NAME/claude-code"
 if [ -d "$CODE1" ]; then
-    ok "ayrı CLAUDE_CONFIG_DIR: $CODE1"
+    ok "separate CLAUDE_CONFIG_DIR: $CODE1"
 else
-    fail "claude-code dizini oluşmadı"
+    fail "claude-code directory was not created"
 fi
-# Not: Claude Code CLI, instance giriş yapılana kadar spawn olmayabilir; bu
-# durumda dizin boş kalır (beklenen). Doluysa ayrışma doğrulanmış olur.
+# Note: the Claude Code CLI may not be spawned until the instance is signed in; in
+# that case the directory stays empty (expected). If it has files, isolation is confirmed.
 if [ -n "$(ls -A "$CODE1" 2>/dev/null)" ]; then
-    ok "Claude Code yapılandırması instance dizininde"
+    ok "Claude Code config is in the instance directory"
 else
-    ok "Claude Code dizini boş (CLI henüz çalışmadı — giriş sonrası dolar)"
+    ok "Claude Code directory is empty (CLI has not run yet; it fills after sign in)"
 fi
 
 step "list --json"
@@ -100,31 +100,31 @@ fi
 
 step "status"
 if "$BIN" status "$SMOKE_NAME" >/dev/null 2>&1; then
-    ok "status çalıştı"
+    ok "status ran"
 else
-    fail "status başarısız"
+    fail "status failed"
 fi
 
 step "doctor"
 DOCTOR_OUT="$("$BIN" doctor "$SMOKE_NAME" 2>&1)"
 if echo "$DOCTOR_OUT" | grep -q "claude-app"; then
-    ok "doctor çalıştı"
+    ok "doctor ran"
 else
-    fail "doctor çıktısı bekleneni içermiyor"
+    fail "doctor output is missing the expected text"
 fi
 
 step "logs"
 if "$BIN" logs "$SMOKE_NAME" -n 5 >/dev/null 2>&1; then
-    ok "logs çalıştı"
+    ok "logs ran"
 else
-    fail "logs başarısız"
+    fail "logs failed"
 fi
 
 step "stop"
 if "$BIN" stop "$SMOKE_NAME" >/dev/null 2>&1; then
-    ok "instance durduruldu"
+    ok "instance stopped"
 else
-    fail "stop başarısız"
+    fail "stop failed"
 fi
 sleep 3
 STOPPED_JSON="$("$BIN" list --json 2>/dev/null)"
@@ -132,76 +132,76 @@ STOPPED="$(json_field "$STOPPED_JSON" "$SMOKE_NAME" isRunning)"
 if [ "$STOPPED" = "False" ]; then
     ok "list isRunning=false"
 else
-    fail "list isRunning=$STOPPED (false olmalı)"
+    fail "list isRunning=$STOPPED (should be false)"
 fi
 
-step "duplicate reddi"
+step "duplicate rejection"
 if "$BIN" new "$SMOKE_NAME" --workdir "$WORK" >/dev/null 2>&1; then
-    fail "duplicate ad kabul edildi"
+    fail "duplicate name was accepted"
 else
-    ok "duplicate ad reddedildi"
+    ok "duplicate name was rejected"
 fi
 
-step "geçersiz ad"
-"$BIN" new "GEÇERSİZ AD" --workdir "$WORK" >/dev/null 2>&1
+step "invalid name"
+"$BIN" new "INVALID NAME" --workdir "$WORK" >/dev/null 2>&1
 if [ $? -eq 2 ]; then
-    ok "geçersiz ad exit=2"
+    ok "invalid name exit=2"
 else
-    fail "geçersiz ad exit=$? (2 olmalı)"
+    fail "invalid name exit=$? (should be 2)"
 fi
 
-step "değersiz --workdir"
-"$BIN" new "workdirsuz-$$" --workdir >/dev/null 2>&1
+step "--workdir without a value"
+"$BIN" new "noworkdir-$$" --workdir >/dev/null 2>&1
 if [ $? -eq 2 ]; then
-    ok "değersiz --workdir exit=2"
+    ok "--workdir without a value exit=2"
 else
-    fail "değersiz --workdir exit=$? (2 olmalı)"
+    fail "--workdir without a value exit=$? (should be 2)"
 fi
-"$BIN" remove "workdirsuz-$$" >/dev/null 2>&1 || true
+"$BIN" remove "noworkdir-$$" >/dev/null 2>&1 || true
 
-step "iki instance izolasyonu"
+step "two-instance isolation"
 "$BIN" new "$SMOKE2_NAME" --workdir "$WORK" >/dev/null 2>&1
 "$BIN" start "$SMOKE2_NAME" >/dev/null 2>&1
 sleep 12
 PROFILE2="$(profile_dir "$SMOKE2_NAME")"
 if [ -f "$PROFILE2/Cookies" ] && [ "$PROFILE1" != "$PROFILE2" ]; then
-    ok "iki ayrı profil: $PROFILE1 ve $PROFILE2"
+    ok "two separate profiles: $PROFILE1 and $PROFILE2"
 else
-    fail "ikinci profil oluşmadı veya dizinler aynı"
+    fail "second profile was not created, or the directories are the same"
 fi
 if [ -f "$PROFILE1/Cookies" ] && [ -f "$PROFILE2/Cookies" ]; then
     INODE1="$(stat -f %i "$PROFILE1/Cookies")"
     INODE2="$(stat -f %i "$PROFILE2/Cookies")"
     if [ "$INODE1" != "$INODE2" ]; then
-        ok "cookie veritabanları ayrı dosyalar"
+        ok "cookie databases are separate files"
     else
-        fail "cookie veritabanları aynı dosya (inode $INODE1)"
+        fail "cookie databases are the same file (inode $INODE1)"
     fi
 fi
 "$BIN" stop "$SMOKE2_NAME" >/dev/null 2>&1 || true
 
-step "oturum aktarımı"
-# Sahte bir Claude Code oturumu birinci instance'a yazılır, ikinciye taşınır.
+step "session transfer"
+# Write a fake Claude Code session into the first instance and move it to the second.
 SID="smoke-session-$$"
 PROJ="$CODE1/projects/-tmp-smoke"
 mkdir -p "$PROJ"
 printf '%s\n' \
-  "{\"type\":\"user\",\"cwd\":\"/tmp/smoke\",\"sessionId\":\"$SID\",\"timestamp\":\"2026-11-08T10:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"merhaba\"}}" \
+  "{\"type\":\"user\",\"cwd\":\"/tmp/smoke\",\"sessionId\":\"$SID\",\"timestamp\":\"2026-11-08T10:00:00.000Z\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}" \
   > "$PROJ/$SID.jsonl"
 "$BIN" stop "$SMOKE2_NAME" >/dev/null 2>&1 || true
 if "$BIN" session move "$SID" --to "$SMOKE2_NAME" >/dev/null 2>&1 \
    && "$BIN" session show "$SID" --instance "$SMOKE2_NAME" >/dev/null 2>&1 \
    && [ ! -e "$PROJ/$SID.jsonl" ]; then
-    ok "oturum taşındı ve hedefte görünüyor"
+    ok "session moved and is visible in the target"
 else
-    fail "oturum taşınamadı"
+    fail "session could not be moved"
 fi
 rm -rf "$HOME/Library/Application Support/claude-ctl/backups/"*"-$SID"
 
-printf '\n== sonuç ==\n'
+printf '\n== result ==\n'
 if [ "$FAILURES" -eq 0 ]; then
-    echo "tüm adımlar geçti"
+    echo "all steps passed"
     exit 0
 fi
-echo "$FAILURES adım başarısız"
+echo "$FAILURES step(s) failed"
 exit 1

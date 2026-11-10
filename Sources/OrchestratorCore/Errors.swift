@@ -1,18 +1,18 @@
 import Foundation
 
-/// `claude-orchestrator` hata tipleri.
+/// `claude-orchestrator` error types.
 ///
-/// `usage` → exit code 2, diğerleri → exit code 1.
+/// `usage` → exit code 2, everything else → exit code 1.
 public enum OrchestratorError: Error, Equatable {
-    /// Kullanım hatası: yanlış komut, eksik argüman, geçersiz ad.
+    /// Usage error: wrong command, missing argument, invalid name.
     case usage(String)
-    /// Çalışma hatası: dosya yok, süreç başlatılamadı, kilitli profil vb.
+    /// Runtime error: missing file, process failed to start, locked profile, etc.
     case runtime(String)
-    /// Aranan instance tanımı yok.
+    /// The requested instance is not defined.
     case notFound(String)
-    /// Instance adı biçim kurallarına uymuyor.
+    /// The instance name doesn't follow the naming rules.
     case invalidName(String)
-    /// `config.json` okunamadı veya bozuk.
+    /// `config.json` couldn't be read or is corrupt.
     case corruptConfig(URL)
 }
 
@@ -25,7 +25,7 @@ extension OrchestratorError: CustomStringConvertible {
              let .invalidName(message):
             return message
         case let .corruptConfig(url):
-            return "config bozuk: \(url.path)"
+            return "corrupt config: \(url.path)"
         }
     }
 }

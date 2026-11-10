@@ -1,46 +1,46 @@
 import Foundation
 
-/// Terminal seçicisine gelen tuşlar (terminalden bağımsız).
+/// Keys sent to the terminal picker (terminal-independent).
 public enum PickerKey: Equatable {
     case character(Character)
     case backspace
-    /// Ctrl-U: sorguyu temizle.
+    /// Ctrl-U: clear the query.
     case clearQuery
     case up
     case down
     case pageUp
     case pageDown
     case enter
-    /// Esc: bir önceki ekrana dön.
+    /// Esc: go back to the previous screen.
     case escape
-    /// Ctrl-C / Ctrl-D: iptal.
+    /// Ctrl-C / Ctrl-D: cancel.
     case interrupt
 }
 
-/// Seçicinin bir tuştan sonra istediği eylem.
+/// What the picker wants done after a key press.
 public enum PickerAction: Equatable {
     case none
-    /// Seçilen öğenin `items` içindeki indeksi.
+    /// Index of the selected item in `items`.
     case select(Int)
     case back
     case cancel
 }
 
-/// Aranabilir, klavyeyle gezilen liste: durum + tuş işleme.
+/// A searchable, keyboard-driven list: state plus key handling.
 ///
-/// Çizimden bağımsızdır; terminal katmanı yalnızca `visible` / `selection`
-/// değerlerini çizer.
+/// Independent of drawing; the terminal layer just renders `visible` and
+/// `selection`.
 public struct PickerModel {
-    /// Arama metinleri (öğe başına bir tane).
+    /// Search texts (one per item).
     public let items: [String]
-    /// `true` ise sorgu kutusu yok (kısa listeler: hedef hesap seçimi).
+    /// If `false`, there is no query box (short lists, such as picking the target account).
     public let searchable: Bool
     public private(set) var query = ""
-    /// Filtrelenmiş öğeler (puana göre sıralı): `items` indeksi + eşleşen konumlar.
+    /// Filtered items, sorted by score: `items` index plus matched positions.
     public private(set) var visible: [(index: Int, positions: [Int])] = []
-    /// `visible` içindeki seçili satır.
+    /// Selected row within `visible`.
     public private(set) var selection = 0
-    /// Sayfa kaydırması için görünen satır sayısı.
+    /// Number of visible rows, used for paging.
     public var pageSize = 10
 
     public init(items: [String], searchable: Bool = true) {
@@ -78,7 +78,7 @@ public struct PickerModel {
         case .enter:
             return selectedIndex.map(PickerAction.select) ?? .none
         case .escape:
-            // Önce sorguyu temizle; boşsa geri dön.
+            // Clear the query first; if it's already empty, go back.
             if searchable, !query.isEmpty {
                 query = ""
                 refilter()

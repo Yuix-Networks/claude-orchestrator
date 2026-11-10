@@ -60,8 +60,8 @@ final class ManifestTests: XCTestCase {
     func testLoadsRelativeTildeOptionalNameAndJSON5() throws {
         try write("""
         {
-          // elle yazılmış not
-          "//": "not alanı",
+          // hand-written note
+          "//": "note field",
           "projects": [
             { "name": "A", "path": "a", "folders": ["b", "./b", "a"] },
             { "path": "\(c.path)", },
@@ -72,8 +72,8 @@ final class ManifestTests: XCTestCase {
         let projects = try Orchestrator.loadManifest(manifest)
 
         XCTAssertEqual(projects.map(\.name), ["A", "c"])
-        XCTAssertEqual(projects[0].path, a.path, "göreli yol dosyanın klasörüne göre")
-        XCTAssertEqual(projects[0].additionalFolders, [b.path], "tekrar ve ana klasör ek klasörlerden atılır")
+        XCTAssertEqual(projects[0].path, a.path, "relative path resolves against the file's folder")
+        XCTAssertEqual(projects[0].additionalFolders, [b.path], "duplicates and the main folder are dropped from extra folders")
         XCTAssertEqual(try Orchestrator.resolveDirectory("~"), NSHomeDirectory())
     }
 
@@ -82,62 +82,62 @@ final class ManifestTests: XCTestCase {
         { "projects": [
             { "name": "A", "path": "a", "folder": ["b"] },
             { "name": "A", "path": "b" },
-            { "name": "C", "path": "yok" },
-            { "name": "D", "path": "c", "folders": ["yok-ek"] },
+            { "name": "C", "path": "missing" },
+            { "name": "D", "path": "c", "folders": ["missing-extra"] },
             { "name": "E", "path": "a" },
             { "name": "" , "path": "c" },
-            "metin"
-        ], "proje": [] }
+            "text"
+        ], "projets": [] }
         """)
 
         XCTAssertThrowsError(try Orchestrator.loadManifest(manifest)) { error in
             let text = "\(error)"
-            for fragment in ["\"proje\"", "\"folder\"", "projects[0] ile aynı", "klasör bulunamadı",
-                             "ek klasör", "projects[5]: \"name\" geçersiz", "projects[6]: bir nesne"] {
-                XCTAssertTrue(text.contains(fragment), "'\(fragment)' bekleniyordu:\n\(text)")
+            for fragment in ["\"projets\"", "\"folder\"", "as projects[0]", "folder not found",
+                             "extra folder", "projects[5]: invalid \"name\"", "projects[6]: must be an object"] {
+                XCTAssertTrue(text.contains(fragment), "expected '\(fragment)':\n\(text)")
             }
-            XCTAssertTrue(text.contains("hiçbir şey değiştirilmedi"))
+            XCTAssertTrue(text.contains("nothing was changed"))
         }
     }
 
     func testRejectsInvalidJSONWithLocation() throws {
         try write("{ \"projects\": [ { \"path\": \"a\" } ")
         XCTAssertThrowsError(try Orchestrator.loadManifest(manifest)) { error in
-            XCTAssertTrue("\(error)".contains("geçerli JSON değil"), "\(error)")
+            XCTAssertTrue("\(error)".contains("isn't valid JSON"), "\(error)")
         }
     }
 
-    // MARK: - Plan ve uygulama
+    // MARK: - Plan and apply
 
     func testApplyAddsUpdatesRenamesAndKeepsUntrackedWithoutPrune() throws {
-        try signIn("is")
+        try signIn("job")
         _ = try ctl.addProject(name: "A", path: a.path)
         _ = try ctl.addProject(name: "B", path: b.path)
-        _ = try ctl.addProject(name: "Eski", path: c.path)
+        _ = try ctl.addProject(name: "Old", path: c.path)
 
         try write("""
         { "projects": [
             { "name": "A", "path": "a", "folders": ["b"] },
-            { "name": "Yeni", "path": "c" }
+            { "name": "New", "path": "c" }
         ] }
         """)
         let plan = try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false)
 
         XCTAssertEqual(plan.toUpdate.map(\.new.name), ["A"])
-        XCTAssertEqual(plan.toRename.map { "\($0.old.name)>\($0.new.name)" }, ["Eski>Yeni"])
+        XCTAssertEqual(plan.toRename.map { "\($0.old.name)>\($0.new.name)" }, ["Old>New"])
         XCTAssertEqual(plan.untracked.map(\.name), ["B"])
         XCTAssertEqual(plan.toRemove, [])
 
         let result = try ctl.apply(plan)
 
-        XCTAssertEqual(try ctl.projects().map(\.name), ["A", "B", "Yeni"])
+        XCTAssertEqual(try ctl.projects().map(\.name), ["A", "B", "New"])
         XCTAssertEqual(try ctl.projects().first?.additionalFolders, [b.path])
         XCTAssertEqual(result.synced.first?.error, nil)
-        XCTAssertEqual(try presetNames("is")[c.path], "Yeni", "yeniden adlandırma Desktop ortamına da yansımalı")
+        XCTAssertEqual(try presetNames("job")[c.path], "New", "rename should also be reflected in the Desktop environment")
     }
 
     func testPruneRemovesProjectsMissingFromFileAndTheirEnvironments() throws {
-        try signIn("is")
+        try signIn("job")
         _ = try ctl.addProject(name: "A", path: a.path)
         _ = try ctl.addProject(name: "B", path: b.path)
         try write(#"{ "projects": [ { "name": "A", "path": "a" } ] }"#)
@@ -147,8 +147,8 @@ final class ManifestTests: XCTestCase {
         _ = try ctl.apply(plan)
 
         XCTAssertEqual(try ctl.projects().map(\.name), ["A"])
-        XCTAssertNil(try presetNames("is")[b.path])
-        XCTAssertEqual(try presetNames("is")[a.path], "A")
+        XCTAssertNil(try presetNames("job")[b.path])
+        XCTAssertEqual(try presetNames("job")[a.path], "A")
     }
 
     func testApplyIsIdempotent() throws {
@@ -163,7 +163,7 @@ final class ManifestTests: XCTestCase {
 
     func testMovingAPathBetweenProjectsInOneApply() throws {
         _ = try ctl.addProject(name: "A", path: a.path)
-        // A başka klasöre taşınıyor, eski klasörü yeni proje B alıyor.
+        // A moves to another folder; new project B takes over its old folder.
         try write(#"{ "projects": [ { "name": "A", "path": "c" }, { "name": "B", "path": "a" } ] }"#)
 
         _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
@@ -178,18 +178,18 @@ final class ManifestTests: XCTestCase {
         XCTAssertEqual(try ctl.projects(), [])
     }
 
-    // MARK: - Dışa aktarma
+    // MARK: - Export
 
     func testExportRoundTripsAndKeepsFieldOrder() throws {
-        _ = try ctl.addProject(name: "A \"tırnaklı\"", path: a.path, additionalFolders: [b.path])
+        _ = try ctl.addProject(name: "A \"quoted\"", path: a.path, additionalFolders: [b.path])
         _ = try ctl.addProject(name: "C", path: c.path)
 
         let text = try ctl.exportManifest()
-        XCTAssertTrue(text.contains(#"{ "name": "A \"tırnaklı\"", "path": "#), text)
+        XCTAssertTrue(text.contains(#"{ "name": "A \"quoted\"", "path": "#), text)
         try write(text)
 
         let loaded = try Orchestrator.loadManifest(manifest)
-        XCTAssertEqual(loaded.map(\.name), ["A \"tırnaklı\"", "C"])
+        XCTAssertEqual(loaded.map(\.name), ["A \"quoted\"", "C"])
         XCTAssertEqual(loaded.first?.additionalFolders, [b.path])
         XCTAssertFalse(try ctl.planApply(loaded, prune: true).hasChanges)
     }
@@ -200,7 +200,7 @@ final class ManifestTests: XCTestCase {
         XCTAssertTrue(text.contains(#""path": "~/workspace/x""#), text)
     }
 
-    // MARK: - defaults ve izin modu
+    // MARK: - defaults and permission mode
 
     private func desktopPreferences(_ instance: String) throws -> [String: Any] {
         let url = paths.profileDir(instance).appendingPathComponent("claude_desktop_config.json")
@@ -230,7 +230,7 @@ final class ManifestTests: XCTestCase {
         XCTAssertEqual(projects[0].additionalFolders, [b.path, c.path])
         XCTAssertEqual(projects[0].permissionMode, "bypassPermissions")
         XCTAssertEqual(projects[1].permissionMode, "acceptEdits", "projedeki mod ortak modu ezer")
-        XCTAssertEqual(projects[2].additionalFolders, [], "ortak klasör projenin kendisine eklenmez")
+        XCTAssertEqual(projects[2].additionalFolders, [], "a shared folder is not added to the project that owns it")
     }
 
     func testRejectsInvalidPermissionModeAndDefaultsKeys() throws {
@@ -240,48 +240,48 @@ final class ManifestTests: XCTestCase {
         """)
         XCTAssertThrowsError(try Orchestrator.loadManifest(manifest)) { error in
             let text = "\(error)"
-            XCTAssertTrue(text.contains("defaults: bilinmeyen alan \"folder\""), text)
+            XCTAssertTrue(text.contains("defaults: unknown field \"folder\""), text)
             XCTAssertTrue(text.contains("yolo"), text)
-            XCTAssertTrue(text.contains("projects[0] \"a\": \"permissionMode\" geçersiz"), text)
+            XCTAssertTrue(text.contains("projects[0] \"a\": invalid \"permissionMode\""), text)
         }
     }
 
     func testBypassModeIsWrittenPerAccountAndFolderWithoutTouchingOrgGate() throws {
-        try signIn("is")
-        let configURL = paths.profileDir("is").appendingPathComponent("claude_desktop_config.json")
+        try signIn("job")
+        let configURL = paths.profileDir("job").appendingPathComponent("claude_desktop_config.json")
         try JSONSerialization.data(withJSONObject: ["preferences": [
-            "bypassPermissionsGateByAccount": ["acct-is": false],
+            "bypassPermissionsGateByAccount": ["acct-job": false],
             "menuBarEnabled": true
         ]]).write(to: configURL)
         try write(#"{ "defaults": { "permissionMode": "bypassPermissions" }, "projects": [ { "name": "A", "path": "a" } ] }"#)
 
         let result = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
 
-        XCTAssertEqual(try folderModes("is"), [a.path: "bypassPermissions"])
-        let preferences = try desktopPreferences("is")
+        XCTAssertEqual(try folderModes("job"), [a.path: "bypassPermissions"])
+        let preferences = try desktopPreferences("job")
         XCTAssertEqual(preferences["bypassPermissionsModeEnabled"] as? Bool, true)
-        XCTAssertEqual((preferences["bypassPermissionsOptInByAccount"] as? [String: Bool])?["acct-is"], true)
-        XCTAssertEqual((preferences["bypassPermissionsGateByAccount"] as? [String: Bool])?["acct-is"], false,
-                       "organizasyon politikası değiştirilmemeli")
-        XCTAssertEqual(preferences["menuBarEnabled"] as? Bool, true, "diğer tercihler korunmalı")
-        let acks = (preferences["epitaxyPrefs"] as? [String: Any])?["epitaxy-perm-mode-acks-v2.acct-is"] as? [String]
+        XCTAssertEqual((preferences["bypassPermissionsOptInByAccount"] as? [String: Bool])?["acct-job"], true)
+        XCTAssertEqual((preferences["bypassPermissionsGateByAccount"] as? [String: Bool])?["acct-job"], false,
+                       "organization policy must not be changed")
+        XCTAssertEqual(preferences["menuBarEnabled"] as? Bool, true, "other preferences should be preserved")
+        let acks = (preferences["epitaxyPrefs"] as? [String: Any])?["epitaxy-perm-mode-acks-v2.acct-job"] as? [String]
         XCTAssertEqual(acks, ["\(a.path):bypassPermissions"])
-        XCTAssertEqual(result.synced.first?.applied?.bypassBlockedAccounts, ["acct-is"])
+        XCTAssertEqual(result.synced.first?.applied?.bypassBlockedAccounts, ["acct-job"])
     }
 
     func testModeOnlyChangeKeepsEnvironmentAndRemovingModeClearsIt() throws {
-        try signIn("is")
+        try signIn("job")
         try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "acceptEdits" } ] }"#)
         _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
 
-        // Kullanıcı Desktop'ta ortama ayar ekledi.
-        let presetsURL = paths.profileDir("is").appendingPathComponent("ccd-session-presets.json")
+        // The user added a setting to the environment in Desktop.
+        let presetsURL = paths.profileDir("job").appendingPathComponent("ccd-session-presets.json")
         var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: presetsURL)) as? [String: Any])
         var byAccount = try XCTUnwrap(object["byAccount"] as? [String: Any])
-        var account = try XCTUnwrap(byAccount["acct-is"] as? [String: Any])
+        var account = try XCTUnwrap(byAccount["acct-job"] as? [String: Any])
         var list = try XCTUnwrap(account["presets"] as? [[String: Any]])
         list[0]["settings"] = ["modelId": "claude-opus-5-5"]
-        account["presets"] = list; byAccount["acct-is"] = account; object["byAccount"] = byAccount
+        account["presets"] = list; byAccount["acct-job"] = account; object["byAccount"] = byAccount
         try JSONSerialization.data(withJSONObject: object).write(to: presetsURL)
 
         try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "bypassPermissions" } ] }"#)
@@ -289,24 +289,24 @@ final class ManifestTests: XCTestCase {
         XCTAssertEqual(plan.toUpdate.count, 1)
         _ = try ctl.apply(plan)
 
-        XCTAssertEqual(try folderModes("is")[a.path], "bypassPermissions")
+        XCTAssertEqual(try folderModes("job")[a.path], "bypassPermissions")
         let after = try String(contentsOf: presetsURL, encoding: .utf8)
-        XCTAssertTrue(after.contains("claude-opus-5-5"), "yalnızca mod değişince ortam ayarları korunmalı")
+        XCTAssertTrue(after.contains("claude-opus-5-5"), "environment settings should be preserved when only the mode changes")
 
         try write(#"{ "projects": [ { "name": "A", "path": "a" } ] }"#)
         _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
-        XCTAssertNil(try folderModes("is")[a.path], "dosyadan kaldırılan mod Desktop'tan da silinmeli")
+        XCTAssertNil(try folderModes("job")[a.path], "a mode removed from the file should also be removed from Desktop")
     }
 
     func testPruneClearsPermissionModeOfRemovedProject() throws {
-        try signIn("is")
+        try signIn("job")
         try write(#"{ "projects": [ { "name": "A", "path": "a", "permissionMode": "bypassPermissions" } ] }"#)
         _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: false))
 
         try write(#"{ "projects": [] }"#)
         _ = try ctl.apply(try ctl.planApply(try Orchestrator.loadManifest(manifest), prune: true))
 
-        XCTAssertEqual(try folderModes("is"), [:])
+        XCTAssertEqual(try folderModes("job"), [:])
     }
 
     func testExportIncludesPermissionMode() throws {

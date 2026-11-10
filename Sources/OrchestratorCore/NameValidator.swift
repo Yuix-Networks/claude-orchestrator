@@ -1,23 +1,23 @@
 import Foundation
 
-/// Instance adı doğrulama.
+/// Instance name validation.
 ///
-/// Ad, dosya sisteminde güvenle kullanılabilmeli: yol ayırıcı, `..` veya
-/// boşluk içeremez; büyük harf ve Unicode kabul edilmez.
+/// The name must be safe to use on the file system: no path separators, `..`
+/// or spaces; uppercase letters and Unicode are not allowed.
 public enum NameValidator {
-    /// `[a-z0-9][a-z0-9-]{0,31}` — 1-32 karakter, küçük harf/rakam/tire.
+    /// `[a-z0-9][a-z0-9-]{0,31}` — 1-32 characters: lowercase letters, digits, hyphens.
     public static let pattern = "^[a-z0-9][a-z0-9-]{0,31}\\z"
 
-    /// Ad geçerli değilse `OrchestratorError.invalidName` fırlatır.
+    /// Throws `OrchestratorError.invalidName` if the name is invalid.
     public static func validate(_ name: String) throws {
         guard name.range(of: pattern, options: .regularExpression) != nil else {
             throw OrchestratorError.invalidName(
-                "instance adı '\(name)' geçersiz: sadece küçük harf, rakam ve tire, 1-32 karakter"
+                "invalid instance name '\(name)': use lowercase letters, digits and hyphens only, 1-32 characters"
             )
         }
     }
 
-    /// Ad geçerli mi?
+    /// Is the name valid?
     public static func isValid(_ name: String) -> Bool {
         name.range(of: pattern, options: .regularExpression) != nil
     }

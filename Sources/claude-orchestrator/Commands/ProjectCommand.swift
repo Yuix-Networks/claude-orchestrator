@@ -3,25 +3,25 @@ import Foundation
 
 /// `claude-orchestrator project <add|list|remove|sync|import> …`
 ///
-/// Projeler merkezi olarak kaydedilir ve her instance'ın Code sekmesine ortam
-/// ("environment") olarak yazılır; böylece tüm hesaplarda aynı projeler görünür.
+/// Projects are registered centrally and written to each instance's Code tab as
+/// an "environment", so every account sees the same projects.
 enum ProjectCommand {
     static let usage = """
-    project add <yol> [--name <ad>] [--folder <ek-yol>]... [--replace] [--json]
+    project add <path> [--name <name>] [--folder <extra-path>]... [--replace] [--json]
     project list [--json]
-    project remove <ad> [--keep] [--json]
-    project sync [--instance <ad>] [--reset-desktop] [--json]
+    project remove <name> [--keep] [--json]
+    project sync [--instance <name>] [--reset-desktop] [--json]
     project import --from <instance|default> [--json]
-    project apply [<dosya>] [--prune] [--dry-run] [--reset-desktop] [--json]
-    (--reset-desktop: Claude'un listeyi dosyadan yeniden içeri alması için profillerin
-     arayüz deposunu yedekler; profiller kapalı olmalı)
-    project export [<dosya>] [--force]
-    (varsayılan dosya: ~/.config/claude-orchestrator/projects.json)
+    project apply [<file>] [--prune] [--dry-run] [--reset-desktop] [--json]
+    (--reset-desktop: backs up the profiles' UI storage so Claude re-imports the list
+     from the file; the profiles must be closed)
+    project export [<file>] [--force]
+    (default file: ~/.config/claude-orchestrator/projects.json)
     """
 
     static func run(_ args: [String]) throws {
         guard let sub = args.first else {
-            throw OrchestratorError.usage("project: alt komut gerekli\n\(usage)")
+            throw OrchestratorError.usage("project: a subcommand is required\n\(usage)")
         }
         let rest = Array(args.dropFirst())
         switch sub {
@@ -33,7 +33,7 @@ enum ProjectCommand {
         case "apply": try applyManifest(rest)
         case "export": try exportManifest(rest)
         default:
-            throw OrchestratorError.usage("project: bilinmeyen alt komut: \(sub)\n\(usage)")
+            throw OrchestratorError.usage("project: unknown subcommand: \(sub)\n\(usage)")
         }
     }
 
@@ -41,7 +41,7 @@ enum ProjectCommand {
 
     static func add(_ args: [String]) throws {
         let parsed = try Arguments(args, allowed: ["name", "folder", "replace", "json"])
-        let path = try parsed.requirePositional(0, name: "proje klasörü", command: "project add")
+        let path = try parsed.requirePositional(0, name: "project folder", command: "project add")
         let (project, results) = try Orchestrator().addProject(
             name: parsed.optionalFlag("name"),
             path: path,
@@ -53,8 +53,8 @@ enum ProjectCommand {
             Output.json(["project": dictionary(project), "instances": results.map(dictionary)])
             return
         }
-        Output.line("proje kaydedildi: \(project.name) → \(project.path)")
-        for folder in project.additionalFolders { Output.line("  ek klasör: \(folder)") }
+        Output.line("project registered: \(project.name) → \(project.path)")
+        for folder in project.additionalFolders { Output.line("  extra folder: \(folder)") }
         report(results)
     }
 
@@ -78,11 +78,11 @@ enum ProjectCommand {
             return
         }
         if projects.isEmpty {
-            Output.line("kayıtlı proje yok — eklemek için: claude-orchestrator project add <yol>")
-            Output.line("var olan ortamları almak için: claude-orchestrator project import --from default")
+            Output.line("no registered projects. Add one with: claude-orchestrator project add <path>")
+            Output.line("to import your existing environments: claude-orchestrator project import --from default")
             return
         }
-        Output.line(ListCommand.pad("PROJE", 28) + ListCommand.pad("KLASÖR", 40) + "INSTANCE'LAR")
+        Output.line(ListCommand.pad("PROJECT", 28) + ListCommand.pad("FOLDER", 40) + "INSTANCES")
         for project in projects {
             let presence = try ctl.projectPresence(project)
                 .map { "\($0.instance) \(symbol($0.presence))" }
@@ -94,14 +94,14 @@ enum ProjectCommand {
             )
         }
         Output.line("")
-        Output.line("✓ senkron   ✗ eksik (project sync)   … giriş bekleniyor (ilk girişten sonraki start ile yazılır)")
+        Output.line("✓ in sync   ✗ missing (project sync)   … waiting for sign-in (written on the first start after sign-in)")
     }
 
     // MARK: - remove
 
     static func remove(_ args: [String]) throws {
         let parsed = try Arguments(args, allowed: ["keep", "json"])
-        let name = try parsed.requirePositional(0, name: "proje adı", command: "project remove")
+        let name = try parsed.requirePositional(0, name: "project name", command: "project remove")
         let results = try Orchestrator().removeProject(name: name, keepInInstances: parsed.has("keep"))
 
         if parsed.has("json") {
@@ -118,12 +118,12 @@ enum ProjectCommand {
             ])
             return
         }
-        Output.line("proje kayıttan silindi: \(name)")
+        Output.line("project unregistered: \(name)")
         for result in results {
             if let error = result.error {
-                Output.line("  \(result.instance): hata — \(error)")
+                Output.line("  \(result.instance): error: \(error)")
             } else if let removed = result.removed, removed.presetsRemoved > 0 {
-                Output.line("  \(result.instance): ortam kaldırıldı\(result.isRunning ? " (çalışıyor — yeniden başlatınca görünür)" : "")")
+                Output.line("  \(result.instance): environment removed\(result.isRunning ? " (running: shows after a restart)" : "")")
             }
         }
     }
@@ -165,12 +165,12 @@ enum ProjectCommand {
             ])
             return
         }
-        Output.line("\(result.imported.count) proje '\(source)' kaynağından alındı")
+        Output.line("imported \(result.imported.count) project(s) from '\(source)'")
         for project in result.imported {
             Output.line("  + \(project.name) → \(SessionCommand.shortPath(project.path, width: 60))")
         }
         for skipped in result.skipped {
-            Output.line("  atlandı: \(SessionCommand.shortPath(skipped.path, width: 60)) (\(skipped.reason))")
+            Output.line("  skipped: \(SessionCommand.shortPath(skipped.path, width: 60)) (\(skipped.reason))")
         }
         if !result.imported.isEmpty { report(sync) }
     }
@@ -185,11 +185,11 @@ enum ProjectCommand {
         let dryRun = parsed.has("dry-run")
         let reset = parsed.has("reset-desktop")
         if reset, !dryRun {
-            // Çalışan instance varsa kayda dokunmadan önce dur.
+            // Stop before touching the registry if any instance is running.
             let running = try ctl.instanceEndpoints().filter(\.isRunning).map(\.name)
             guard running.isEmpty else {
                 throw OrchestratorError.runtime(
-                    "çalışan instance'lar var: \(running.joined(separator: ", ")) — önce durdur (çalışan Claude listeyi geri yazar)"
+                    "instances are running: \(running.joined(separator: ", ")). Stop them first (a running Claude writes the list back)"
                 )
             }
         }
@@ -215,41 +215,41 @@ enum ProjectCommand {
             return
         }
 
-        Output.line("\(dryRun ? "plan" : "uygulandı"): \(url.path)")
+        Output.line("\(dryRun ? "plan" : "applied"): \(url.path)")
         for project in plan.toAdd { Output.line("  + \(project.name)  \(SessionCommand.shortPath(project.path, width: 60))") }
         for change in plan.toRename { Output.line("  ~ \(change.old.name) → \(change.new.name)") }
         for change in plan.toUpdate { Output.line("  ~ \(change.new.name)  \(describe(change))") }
         for project in plan.toRemove { Output.line("  - \(project.name)") }
-        if !plan.hasChanges { Output.line("  değişiklik yok (\(plan.unchanged.count) proje güncel)") }
+        if !plan.hasChanges { Output.line("  no changes (\(plan.unchanged.count) project(s) up to date)") }
         if !plan.untracked.isEmpty {
             let names = plan.untracked.map(\.name).joined(separator: ", ")
-            Output.line("  not: dosyada olmayan \(plan.untracked.count) kayıtlı proje kaldı (\(names)) — silmek için --prune")
+            Output.line("  note: \(plan.untracked.count) registered project(s) not in the file were kept (\(names)); use --prune to remove them")
         }
         if let result, plan.hasChanges || reset {
             Output.line("")
             report(result.synced)
             for failure in result.withdrawn where failure.error != nil {
-                Output.line("  \(failure.instance): eski ortam kaldırılamadı — \(failure.error ?? "")")
+                Output.line("  \(failure.instance): could not remove the old environment: \(failure.error ?? "")")
             }
         } else if dryRun, plan.hasChanges {
             Output.line("")
-            Output.line("uygulamak için: claude-orchestrator project apply\(parsed.positionals.first.map { " \($0)" } ?? "")\(parsed.has("prune") ? " --prune" : "")")
+            Output.line("to apply: claude-orchestrator project apply\(parsed.positionals.first.map { " \($0)" } ?? "")\(parsed.has("prune") ? " --prune" : "")")
         }
     }
 
     static func describe(_ change: ProjectChange) -> String {
         var parts: [String] = []
         if change.old.path != change.new.path {
-            parts.append("klasör: \(SessionCommand.shortPath(change.new.path, width: 50))")
+            parts.append("folder: \(SessionCommand.shortPath(change.new.path, width: 50))")
         }
         let added = change.new.additionalFolders.filter { !change.old.additionalFolders.contains($0) }
         let removed = change.old.additionalFolders.filter { !change.new.additionalFolders.contains($0) }
-        if !added.isEmpty { parts.append("+\(added.count) ek klasör") }
-        if !removed.isEmpty { parts.append("-\(removed.count) ek klasör") }
+        if !added.isEmpty { parts.append("+\(added.count) extra folder(s)") }
+        if !removed.isEmpty { parts.append("-\(removed.count) extra folder(s)") }
         if change.old.permissionMode != change.new.permissionMode {
-            parts.append("izin modu: \(change.old.permissionMode ?? "-") → \(change.new.permissionMode ?? "-")")
+            parts.append("permission mode: \(change.old.permissionMode ?? "-") → \(change.new.permissionMode ?? "-")")
         }
-        if parts.isEmpty { parts.append("ek klasör sırası") }
+        if parts.isEmpty { parts.append("extra folder order") }
         return parts.joined(separator: ", ")
     }
 
@@ -264,14 +264,14 @@ enum ProjectCommand {
         }
         let url = manifestURL(target)
         if FileManager.default.fileExists(atPath: url.path), !parsed.has("force") {
-            throw OrchestratorError.runtime("dosya zaten var: \(url.path) — üzerine yazmak için --force")
+            throw OrchestratorError.runtime("file already exists: \(url.path) (use --force to overwrite)")
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(text.utf8).write(to: url, options: .atomic)
-        Output.line("yazıldı: \(url.path)")
+        Output.line("written: \(url.path)")
     }
 
-    /// Verilen yol (`~` dahil) ya da varsayılan proje dosyası.
+    /// The given path (`~` allowed) or the default projects file.
     static func manifestURL(_ raw: String?) -> URL {
         guard let raw else { return Orchestrator.defaultManifestURL }
         let expanded = (raw as NSString).expandingTildeInPath
@@ -283,42 +283,42 @@ enum ProjectCommand {
     static func reportBackups(_ backups: [String: URL], json: Bool) {
         guard !json else { return }
         for (instance, backup) in backups.sorted(by: { $0.key < $1.key }) {
-            Output.line("  \(instance): arayüz deposu yedeklendi → \(backup.lastPathComponent)")
+            Output.line("  \(instance): UI storage backed up → \(backup.lastPathComponent)")
         }
         if !backups.isEmpty {
-            Output.line("  Claude bir sonraki açılışta environment listesini dosyadan içeri alacak")
+            Output.line("  Claude will import the environment list from the file on its next launch")
         }
     }
 
-    // MARK: - Çıktı
+    // MARK: - Output
 
     static func report(_ results: [ProjectSyncResult]) {
         if results.isEmpty {
-            Output.line("henüz instance yok — projeler oluşturulan her instance'a otomatik eklenir")
+            Output.line("no instances yet. Projects are added automatically to every instance you create")
             return
         }
         for result in results {
             let line: String
             if let error = result.error {
-                line = "hata — \(error)"
+                line = "error: \(error)"
             } else if let applied = result.applied {
                 if applied.accounts.isEmpty {
-                    line = "güvenli klasörler eklendi; ortamlar ilk girişten sonra 'start' ile yazılacak"
+                    line = "trusted folders added; environments will be written by 'start' after the first sign-in"
                 } else if applied.addedCount == 0 {
-                    line = applied.permissionModesSet > 0 ? "güncel (izin modları yazıldı)" : "güncel"
+                    line = applied.permissionModesSet > 0 ? "up to date (permission modes written)" : "up to date"
                 } else {
-                    line = "\(applied.addedCount) ortam eklendi (\(applied.accounts.count) hesap)"
+                    line = "\(applied.addedCount) environment(s) added (\(applied.accounts.count) account(s))"
                 }
             } else {
                 line = "-"
             }
             Output.line("  \(result.instance): \(line)")
             if result.needsDesktopReimport {
-                Output.line("    uyarı: Claude bu profilde listeyi kendi deposunda tutuyor; yeni ortamlar görünmez —"
-                    + " profili kapatıp: claude-orchestrator project sync --instance \(result.instance) --reset-desktop")
+                Output.line("    warning: Claude keeps the list in its own storage in this profile, so new environments won't show."
+                    + " Close the profile, then run: claude-orchestrator project sync --instance \(result.instance) --reset-desktop")
             }
             if let blocked = result.applied?.bypassBlockedAccounts, !blocked.isEmpty {
-                Output.line("    uyarı: \(blocked.count) hesapta organizasyon politikası bypass modunu kapatmış; orada çalışmaz")
+                Output.line("    warning: organization policy disables bypass mode in \(blocked.count) account(s); it won't work there")
             }
         }
     }

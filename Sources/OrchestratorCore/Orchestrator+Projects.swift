@@ -1,33 +1,33 @@
 import Foundation
 
-/// Bir projenin bir instance'taki durumu.
+/// Status of a project in an instance.
 public enum ProjectPresence: String, Equatable {
-    /// Ortam, profildeki tüm bilinen hesaplarda var.
+    /// The environment exists in every known account in the profile.
     case synced
-    /// Ortam en az bir hesapta eksik.
+    /// The environment is missing from at least one account.
     case missing
-    /// Profilde henüz hesap yok (giriş yapılmamış): ortam ilk girişten sonraki
-    /// `start` ile yazılır; güvenli klasör şimdiden eklidir.
+    /// No account in the profile yet (not signed in): the environment is written by the
+    /// first `start` after sign-in; the trusted folder is already added.
     case pendingSignIn
 }
 
-/// Bir instance'a proje senkronlamanın sonucu.
+/// Result of syncing projects to an instance.
 public struct ProjectSyncResult: Equatable {
     public var instance: String
     public var isRunning: Bool
     public var applied: PresetApplyResult?
     public var error: String?
-    /// Profilde Desktop arayüz deposu var mı? Varsa Claude listeyi kendi deposundan
-    /// okur; dosyaya eklenenler `reimportProjects` (`--reset-desktop`) olmadan görünmez.
+    /// Does the profile have a Desktop UI store? If so, Claude reads the list from its own
+    /// store, and entries added to the file won't show up without `reimportProjects` (`--reset-desktop`).
     public var desktopStateExists: Bool = false
 
-    /// Dosyaya ortam eklendi ama Claude onları kendiliğinden görmeyecek.
+    /// Environments were added to the file, but Claude won't pick them up on its own.
     public var needsDesktopReimport: Bool {
         desktopStateExists && (applied?.addedCount ?? 0) > 0
     }
 }
 
-/// Proje kaldırmanın instance başına sonucu.
+/// Per-instance result of removing a project.
 public struct ProjectRemoveResult: Equatable {
     public var instance: String
     public var isRunning: Bool
@@ -35,10 +35,10 @@ public struct ProjectRemoveResult: Equatable {
     public var error: String?
 }
 
-/// İçe aktarmanın sonucu.
+/// Result of an import.
 public struct ProjectImportResult: Equatable {
     public var imported: [Project]
-    /// Atlanan klasörler ve sebebi.
+    /// Skipped folders, and why.
     public var skipped: [(path: String, reason: String)]
 
     public static func == (lhs: ProjectImportResult, rhs: ProjectImportResult) -> Bool {
@@ -47,20 +47,20 @@ public struct ProjectImportResult: Equatable {
 }
 
 extension Orchestrator {
-    // MARK: - Kayıt
+    // MARK: - Registry
 
-    /// Kayıtlı projeler (ada göre sıralı).
+    /// Registered projects (sorted by name).
     public func projects() throws -> [Project] {
         try store.load().projects.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    /// Projeyi kaydeder ve tüm instance'lara senkronlar.
+    /// Registers the project and syncs it to every instance.
     ///
     /// - Parameters:
-    ///   - name: Claude Desktop'ta görünecek ortam adı. `nil` ise klasör adı.
-    ///   - path: Ana klasör (`~` ve göreli yol kabul edilir; var olmalı).
-    ///   - additionalFolders: Ek klasörler.
-    ///   - replace: Aynı adda proje varsa üzerine yaz.
+    ///   - name: Environment name shown in Claude Desktop. `nil` uses the folder name.
+    ///   - path: Main folder (`~` and relative paths are accepted; it must exist).
+    ///   - additionalFolders: Extra folders.
+    ///   - replace: Overwrite a project with the same name.
     public func addProject(
         name: String?,
         path: String,
@@ -78,11 +78,11 @@ extension Orchestrator {
         var config = try store.load()
         if let existing = config.projects[projectName], !replace {
             throw OrchestratorError.runtime(
-                "'\(projectName)' adlı proje zaten var (\(existing.path)) — değiştirmek için --replace"
+                "project '\(projectName)' already exists (\(existing.path)) — use --replace to change it"
             )
         }
         if let other = config.projects.values.first(where: { $0.path == resolvedPath && $0.name != projectName }) {
-            throw OrchestratorError.runtime("bu klasör zaten '\(other.name)' adıyla kayıtlı: \(resolvedPath)")
+            throw OrchestratorError.runtime("this folder is already registered as '\(other.name)': \(resolvedPath)")
         }
 
         let project = Project(
@@ -97,26 +97,25 @@ extension Orchestrator {
         return (project, try syncProjects(only: [project]))
     }
 
-    /// Projeyi kayıttan siler; `keepInInstances` değilse instance'lardaki
-    /// ortamını ve güvenli klasörünü de kaldırır.
+    /// Removes the project from the registry; unless `keepInInstances` is set, also
+    /// removes its environment and trusted folder from the instances.
     ///
-    /// Başka bir kayıtlı projenin veya instance workdir'inin kullandığı
-    /// klasörler güvenli klasörlerden çıkarılmaz.
+    /// Folders used by another registered project or an instance workdir stay
+    /// in the trusted folders.
     public func removeProject(name: String, keepInInstances: Bool = false) throws -> [ProjectRemoveResult] {
         var config = try store.load()
         guard let project = config.projects.removeValue(forKey: name) else {
-            throw OrchestratorError.notFound("proje '\(name)' bulunamadı")
+            throw OrchestratorError.notFound("project '\(name)' not found")
         }
         try store.save(config)
         guard !keepInInstances else { return [] }
         return withdraw([project], remaining: config)
     }
 
-    /// Projelerin ortamlarını tüm instance'lardan kaldırır.
+    /// Removes the projects' environments from every instance.
     ///
-    /// - Parameter remaining: Kaldırma sonrası config; burada hâlâ kayıtlı bir
-    ///   projenin veya instance workdir'inin kullandığı klasörler güvenli
-    ///   klasörlerden çıkarılmaz.
+    /// - Parameter remaining: The config after removal; folders still used by a
+    ///   registered project or an instance workdir in it stay in the trusted folders.
     func withdraw(_ projects: [Project], remaining config: Config) -> [ProjectRemoveResult] {
         guard !projects.isEmpty else { return [] }
         let stillUsed = Set(config.projects.values.flatMap { [$0.path] + $0.additionalFolders })
@@ -138,27 +137,27 @@ extension Orchestrator {
         return results
     }
 
-    // MARK: - Desktop arayüz deposu
+    // MARK: - Desktop UI store
 
-    /// Claude Desktop'un environment listesini dosyadan yeniden içeri almasını sağlar.
+    /// Makes Claude Desktop re-import its environment list from the file.
     ///
-    /// Desktop listeyi arayüzün kendi deposunda (`Local Storage`,
-    /// `ccd-session-presets.<hesap>` anahtarı) tutar ve `ccd-session-presets.json`
-    /// dosyasını yalnızca o hesapla ilk açılışta bir kez içeri alır; sonra dosyayı
-    /// kendi listesiyle ezer. Profil kapalıyken `Local Storage` yedeğe alınınca bir
-    /// sonraki açılış dosyayı yeniden içeri alır. Giriş etkilenmez (çerezler ayrı);
-    /// kaybolan yalnızca arayüz tercihleridir (kenar çubuğu düzeni, taslaklar…).
+    /// Desktop keeps the list in its own UI store (`Local Storage`, key
+    /// `ccd-session-presets.<account>`) and imports `ccd-session-presets.json` only
+    /// once, on the first launch with that account; after that it overwrites the file
+    /// with its own list. Moving `Local Storage` to a backup while the profile is closed
+    /// makes the next launch import the file again. Sign-in isn't affected (cookies are
+    /// separate); only UI preferences are lost (sidebar layout, drafts…).
     ///
-    /// - Returns: Yedeğin konumu (`Local Storage` yoksa `nil`).
-    /// - Throws: Instance çalışıyorsa (çalışan arayüz listeyi geri yazar).
+    /// - Returns: Location of the backup (`nil` if there is no `Local Storage`).
+    /// - Throws: If the instance is running (a running UI writes the list back).
     @discardableResult
     public func resetDesktopState(instance: String) throws -> URL? {
         let endpoint = try endpoint(instance)
         guard !endpoint.isDefault else {
-            throw OrchestratorError.usage("varsayılan Claude kurulumunun arayüz deposu sıfırlanmaz")
+            throw OrchestratorError.usage("the default Claude install's UI store can't be reset")
         }
         if endpoint.isRunning {
-            throw OrchestratorError.runtime("instance çalışıyor: \(instance) — önce 'claude-orchestrator stop \(instance)'")
+            throw OrchestratorError.runtime("instance is running: \(instance) — run 'claude-orchestrator stop \(instance)' first")
         }
         let storage = endpoint.profileDir.appendingPathComponent("Local Storage")
         guard FileManager.default.fileExists(atPath: storage.path) else { return nil }
@@ -168,16 +167,16 @@ extension Orchestrator {
         return backup
     }
 
-    /// Tüm instance'larda arayüz deposunu sıfırlayıp kayıtlı projeleri yeniden yazar.
+    /// Resets the UI store in every instance and rewrites the registered projects.
     ///
-    /// Önce hepsinin kapalı olduğu doğrulanır; biri bile çalışıyorsa hiçbir şey
-    /// değiştirilmez.
+    /// First checks that all of them are stopped; if even one is running, nothing
+    /// is changed.
     public func reimportProjects(instance: String? = nil) throws -> (backups: [String: URL], synced: [ProjectSyncResult]) {
         let endpoints = try instance.map { [try endpoint($0)] } ?? instanceEndpoints()
         let running = endpoints.filter(\.isRunning).map(\.name)
         guard running.isEmpty else {
             throw OrchestratorError.runtime(
-                "çalışan instance'lar var: \(running.joined(separator: ", ")) — önce durdur (çalışan Claude listeyi geri yazar)"
+                "instances are running: \(running.joined(separator: ", ")) — stop them first (a running Claude writes the list back)"
             )
         }
         var backups: [String: URL] = [:]
@@ -187,14 +186,14 @@ extension Orchestrator {
         return (backups, try syncProjects(instance: instance))
     }
 
-    // MARK: - Senkronlama
+    // MARK: - Sync
 
-    /// Kayıtlı projeleri instance profillerine yazar (idempotent).
+    /// Writes the registered projects to instance profiles (idempotent).
     ///
     /// - Parameters:
-    ///   - instance: Yalnızca bu instance (`default` = instance dışı Claude).
-    ///     `nil` → tüm instance'lar (varsayılan kurulum dahil edilmez).
-    ///   - only: Yalnızca bu projeler (`nil` → hepsi).
+    ///   - instance: Only this instance (`default` = the non-instance Claude).
+    ///     `nil` → every instance (the default install isn't included).
+    ///   - only: Only these projects (`nil` → all of them).
     public func syncProjects(instance: String? = nil, only: [Project]? = nil) throws -> [ProjectSyncResult] {
         let projects = try only ?? self.projects()
         let endpoints = try instance.map { [try endpoint($0)] } ?? instanceEndpoints()
@@ -212,7 +211,7 @@ extension Orchestrator {
         }
     }
 
-    /// Projenin her instance'taki durumu.
+    /// Status of the project in each instance.
     public func projectPresence(_ project: Project) throws -> [(instance: String, presence: ProjectPresence)] {
         try instanceEndpoints().map { endpoint in
             let presets = seeder.existingPresets(profileDir: endpoint.profileDir)
@@ -224,13 +223,13 @@ extension Orchestrator {
         }
     }
 
-    // MARK: - İçe aktarma
+    // MARK: - Import
 
-    /// Bir instance'ın (veya `default` kurulumun) mevcut ortamlarını kayda alır.
+    /// Registers the existing environments of an instance (or the `default` install).
     ///
-    /// Aynı klasör birden çok hesapta varsa en son kullanılan adı alınır.
-    /// Zaten kayıtlı ya da diskte olmayan klasörler atlanır. Ad çakışırsa
-    /// sonuna ` (2)` gibi bir ek konur.
+    /// If the same folder exists in several accounts, the most recently used name wins.
+    /// Folders that are already registered or not on disk are skipped. On a name clash,
+    /// a suffix like ` (2)` is added.
     public func importProjects(from source: String) throws -> ProjectImportResult {
         let endpoint = try endpoint(source)
         var config = try store.load()
@@ -246,12 +245,12 @@ extension Orchestrator {
         var skipped: [(path: String, reason: String)] = []
         for preset in newest.values.sorted(by: { $0.cwd < $1.cwd }) {
             if registeredPaths.contains(preset.cwd) {
-                skipped.append((preset.cwd, "zaten kayıtlı"))
+                skipped.append((preset.cwd, "already registered"))
                 continue
             }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: preset.cwd, isDirectory: &isDirectory), isDirectory.boolValue else {
-                skipped.append((preset.cwd, "klasör bulunamadı"))
+                skipped.append((preset.cwd, "folder not found"))
                 continue
             }
             let baseName = (try? Self.validateProjectName(preset.name)) ?? URL(fileURLWithPath: preset.cwd).lastPathComponent
@@ -270,22 +269,22 @@ extension Orchestrator {
         return ProjectImportResult(imported: imported, skipped: skipped)
     }
 
-    // MARK: - Doğrulama
+    // MARK: - Validation
 
-    /// Proje adı: boş olmayan, en fazla 80 karakter, kontrol karakteri içermeyen.
+    /// Project name: not empty, at most 80 characters, no control characters.
     static func validateProjectName(_ raw: String) throws -> String {
         let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name.count <= 80,
               name.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
         else {
-            throw OrchestratorError.usage("proje adı geçersiz: '\(raw)' (1-80 karakter, satır sonu olmadan)")
+            throw OrchestratorError.usage("invalid project name: '\(raw)' (1-80 characters, no line breaks)")
         }
         return name
     }
 
-    /// `~` ve göreli yolu mutlak, standart yola çevirir; klasör olmalı.
+    /// Turns a `~` or relative path into an absolute, standardized one; it must be a folder.
     ///
-    /// - Parameter base: Göreli yolların tabanı (varsayılan: çalışma dizini).
+    /// - Parameter base: Base for relative paths (default: the current directory).
     static func resolveDirectory(_ path: String, relativeTo base: URL? = nil) throws -> String {
         let expanded = (path as NSString).expandingTildeInPath
         let root = base ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
@@ -295,7 +294,7 @@ extension Orchestrator {
         let resolved = url.standardizedFileURL.path
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw OrchestratorError.runtime("klasör bulunamadı: \(resolved)")
+            throw OrchestratorError.runtime("folder not found: \(resolved)")
         }
         return resolved
     }

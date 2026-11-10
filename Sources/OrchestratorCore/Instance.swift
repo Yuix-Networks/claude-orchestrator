@@ -1,14 +1,14 @@
 import Foundation
 
-/// Tek bir Claude instance tanımı.
+/// Definition of a single Claude instance.
 public struct Instance: Codable, Equatable, Sendable {
     public var name: String
-    /// Instance'ın çalışacağı proje klasörü. `nil` ise workdir atanmamıştır.
+    /// Project folder the instance works in. `nil` means no workdir is set.
     public var workdir: String?
     public var createdAt: Date
-    /// Sistem açılışında otomatik başlatılacak mı?
+    /// Start automatically at login?
     public var autoStart: Bool
-    /// Menü çubuğu ikonunda gösterilecek kısa etiket.
+    /// Short label shown on the menu bar icon.
     public var iconBadge: String?
 
     public init(
@@ -26,19 +26,19 @@ public struct Instance: Codable, Equatable, Sendable {
     }
 }
 
-/// Tüm instance'larda bulunması istenen bir proje (Claude Desktop'ta "environment").
+/// A project that should exist in every instance (an "environment" in Claude Desktop).
 ///
-/// Merkezi olarak `config.json`'da tutulur ve her instance profilinin Code
-/// sekmesi ortamlarına (`ccd-session-presets.json`) senkronlanır.
+/// Kept centrally in `config.json` and synced to the Code tab environments
+/// (`ccd-session-presets.json`) of every instance profile.
 public struct Project: Codable, Equatable, Sendable {
-    /// Ortamın Claude Desktop'ta görünen adı (kayıttaki anahtar).
+    /// The environment's name as shown in Claude Desktop (the registry key).
     public var name: String
-    /// Ana çalışma klasörü (mutlak yol).
+    /// Main working folder (absolute path).
     public var path: String
-    /// Ek klasörler (mutlak yollar).
+    /// Additional folders (absolute paths).
     public var additionalFolders: [String]
-    /// Bu projede açılan oturumların varsayılan izin modu
-    /// (`bypassPermissions`, `acceptEdits`, …). `nil` → Desktop ayarına dokunulmaz.
+    /// Default permission mode for sessions opened in this project
+    /// (`bypassPermissions`, `acceptEdits`, …). `nil` → the Desktop setting is left alone.
     public var permissionMode: String?
     public var createdAt: Date
 
@@ -60,7 +60,7 @@ public struct Project: Codable, Equatable, Sendable {
         PresetSpec(name: name, cwd: path, additionalFolders: additionalFolders, permissionMode: permissionMode)
     }
 
-    /// Kayıttaki tanım aynı mı? (oluşturma zamanı hariç)
+    /// Is the definition the same? (ignores the creation time)
     public func sameDefinition(as other: Project) -> Bool {
         name == other.name && path == other.path
             && additionalFolders == other.additionalFolders && permissionMode == other.permissionMode
@@ -80,13 +80,13 @@ public struct Project: Codable, Equatable, Sendable {
     }
 }
 
-/// `config.json` içeriği.
+/// Contents of `config.json`.
 public struct Config: Codable, Equatable, Sendable {
     public static let currentVersion = 1
 
     public var version: Int
     public var instances: [String: Instance]
-    /// Tüm instance'lara senkronlanan projeler (ada göre).
+    /// Projects synced to every instance (keyed by name).
     public var projects: [String: Project]
 
     public init(
@@ -103,7 +103,7 @@ public struct Config: Codable, Equatable, Sendable {
         case version, instances, projects
     }
 
-    /// `projects` alanı olmayan (v0.1.0) config dosyaları da okunur.
+    /// Also reads config files without a `projects` field (v0.1.0).
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)

@@ -1,26 +1,26 @@
 import Foundation
 
-/// Çalışan instance'ları kapatıp oturumu taşıyan, sonra yeniden açan akış
-/// (etkileşimli `session move`).
+/// Flow that shuts down running instances, moves the session, then reopens them
+/// (interactive `session move`).
 ///
-/// Adımlar dışarıdan verilir; böylece sıra ve hata davranışı gerçek süreç
-/// başlatıp durdurmadan test edilebilir.
+/// The steps are passed in, so ordering and error handling can be tested
+/// without starting or stopping real processes.
 public struct SessionMovePlan {
     public struct Outcome {
-        /// Durdurulan (ve yeniden açılması denenen) instance'lar, sırayla.
+        /// Instances that were stopped (and that we tried to reopen), in order.
         public var stopped: [String]
         public var restarted: [String]
-        /// Yeniden açılamayanlar ve sebebi.
+        /// Instances that couldn't be reopened, and why.
         public var restartFailures: [(name: String, error: String)]
         public var result: TransferResult
     }
 
-    /// Kaynak, hedef: aynı sırayla durdurulur ve yeniden açılır.
+    /// Source, target: stopped and reopened in this order.
     public var instances: [String]
     public var isRunning: (String) -> Bool
     public var stop: (String) throws -> Void
     public var start: (String) throws -> Void
-    /// Instance'lar kapandıktan sonra çağrılır.
+    /// Called after the instances have shut down.
     public var transfer: () throws -> TransferResult
     public var progress: (String) -> Void
 
@@ -40,8 +40,8 @@ public struct SessionMovePlan {
         self.progress = progress
     }
 
-    /// Transfer başarısız olsa bile durdurulan instance'lar yeniden açılır;
-    /// ardından transfer hatası fırlatılır.
+    /// Stopped instances are reopened even if the transfer fails;
+    /// the transfer error is thrown afterwards.
     public func run() throws -> Outcome {
         var stopped: [String] = []
         var transferResult: Result<TransferResult, Error>
@@ -76,8 +76,8 @@ public struct SessionMovePlan {
 }
 
 extension Orchestrator {
-    /// Oturumu taşır; kaynak ve hedef çalışıyorsa önce sırayla kapatılır,
-    /// taşımadan sonra yeniden açılır.
+    /// Moves the session; if the source and target are running, they are shut
+    /// down in turn first and reopened after the move.
     public func moveSessionRestarting(
         _ located: LocatedSession,
         to targetName: String,
@@ -86,9 +86,9 @@ extension Orchestrator {
         try transferSessionRestarting(located, to: targetName, move: true, progress: progress)
     }
 
-    /// Oturumu kopyalar ya da taşır. Yazılan instance'lar (kopyada yalnızca
-    /// hedef, taşımada kaynak + hedef) çalışıyorsa sırayla kapatılır, aktarımdan
-    /// sonra yeniden açılır.
+    /// Copies or moves the session. The instances written to (only the target for
+    /// a copy, source + target for a move) are shut down in turn if running, and
+    /// reopened after the transfer.
     public func transferSessionRestarting(
         _ located: LocatedSession,
         to targetName: String,
@@ -99,7 +99,7 @@ extension Orchestrator {
         let touched = move ? [located.endpoint, target] : [target]
         for endpoint in touched where endpoint.isDefault && endpoint.isRunning {
             throw OrchestratorError.runtime(
-                "varsayılan Claude (instance dışı) çalışıyor — önce kendin kapat"
+                "the default Claude (not an instance) is running — quit it yourself first"
             )
         }
         let plan = SessionMovePlan(
@@ -108,12 +108,12 @@ extension Orchestrator {
             stop: { [self] name in
                 _ = try stop(name: name)
                 if (try? endpoint(name).isRunning) == true {
-                    throw OrchestratorError.runtime("instance durdurulamadı: \(name)")
+                    throw OrchestratorError.runtime("couldn't stop instance: \(name)")
                 }
             },
             start: { [self] name in _ = try start(name: name, folder: nil) },
             transfer: { [self] in
-                // Uç noktalar durdurmadan sonra yeniden okunur (isRunning güncel olsun).
+                // Re-read the endpoints after stopping so isRunning is up to date.
                 let fresh = LocatedSession(endpoint: try endpoint(located.endpoint.name), session: located.session)
                 return try transfer(fresh, to: targetName, move: move)
             },

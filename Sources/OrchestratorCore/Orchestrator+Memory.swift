@@ -1,51 +1,51 @@
 import Foundation
 
-/// Bir instance'taki ortak CLAUDE.md bağının durumu.
+/// State of the shared CLAUDE.md link in an instance.
 public enum MemoryLinkState: String, Equatable {
-    /// Bağ bu işlemde kuruldu.
+    /// The link was created by this operation.
     case linked
-    /// Bağ zaten ortak dosyayı gösteriyor.
+    /// The link already points to the shared file.
     case alreadyLinked
-    /// Instance'ın kendine ait bir CLAUDE.md'si var; dokunulmadı (`force` ile yedeklenip bağlanır).
+    /// The instance has its own CLAUDE.md; left alone (`force` backs it up and links).
     case ownFile
-    /// Bağ yok (durum sorgusu).
+    /// No link (status query).
     case missing
-    /// Bağ kaldırıldı.
+    /// The link was removed.
     case unlinked
 }
 
-/// Ortak CLAUDE.md işleminin instance başına sonucu.
+/// Per-instance result of a shared CLAUDE.md operation.
 public struct MemoryLinkResult: Equatable {
     public var instance: String
     public var state: MemoryLinkState
-    /// `force` ile kenara alınan eski dosya.
+    /// The old file set aside by `force`.
     public var backup: URL?
 }
 
-/// Ortak CLAUDE.md.
+/// Shared CLAUDE.md.
 ///
-/// Her instance'ın kendi `CLAUDE_CONFIG_DIR`'i olduğu için Claude Code, varsayılan
-/// kurulumun `~/.claude/CLAUDE.md` dosyasını instance'larda okumaz. Bu uzantı her
-/// instance'ın config dizinine o dosyaya işaret eden bir sembolik bağ koyar:
-/// kurallar tek yerden düzenlenir, tüm instance'larda aynıdır.
+/// Each instance has its own `CLAUDE_CONFIG_DIR`, so Claude Code doesn't read the
+/// default install's `~/.claude/CLAUDE.md` in instances. This extension puts a symlink
+/// to that file in each instance's config directory: the rules are edited in one place
+/// and are the same in every instance.
 extension Orchestrator {
-    /// Ortak dosya: varsayılan kurulumun CLAUDE.md'si.
+    /// The shared file: the default install's CLAUDE.md.
     public var sharedMemoryFile: URL { defaultCodeDir.appendingPathComponent("CLAUDE.md") }
 
     func memoryFile(_ instance: String) -> URL {
         paths.codeDir(instance).appendingPathComponent("CLAUDE.md")
     }
 
-    /// Instance'lara ortak CLAUDE.md bağını kurar.
+    /// Links the shared CLAUDE.md into instances.
     ///
     /// - Parameters:
-    ///   - instance: Yalnızca bu instance (`nil` → hepsi).
-    ///   - force: Instance'ın kendi CLAUDE.md'si varsa `CLAUDE.md.bak-<zaman>` olarak
-    ///     kenara alıp bağla.
+    ///   - instance: Only this instance (`nil` → all of them).
+    ///   - force: If the instance has its own CLAUDE.md, move it aside as
+    ///     `CLAUDE.md.bak-<time>` and link.
     @discardableResult
     public func linkSharedMemory(instance: String? = nil, force: Bool = false) throws -> [MemoryLinkResult] {
         guard FileManager.default.fileExists(atPath: sharedMemoryFile.path) else {
-            throw OrchestratorError.runtime("ortak dosya yok: \(sharedMemoryFile.path) — önce oluştur")
+            throw OrchestratorError.runtime("shared file missing: \(sharedMemoryFile.path) — create it first")
         }
         return try memoryTargets(instance).map { name in
             let fm = FileManager.default
@@ -63,7 +63,7 @@ extension Orchestrator {
                 return MemoryLinkResult(instance: name, state: .linked, backup: backup)
             default:
                 try fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                // Başka bir yeri gösteren ya da kırık bağ değiştirilir.
+                // Replace a link that points elsewhere or is broken.
                 if (try? fm.destinationOfSymbolicLink(atPath: target.path)) != nil {
                     try fm.removeItem(at: target)
                 }
@@ -73,7 +73,7 @@ extension Orchestrator {
         }
     }
 
-    /// Ortak CLAUDE.md bağlarını kaldırır (instance'ın kendi dosyalarına dokunmaz).
+    /// Removes the shared CLAUDE.md links (leaves the instance's own files alone).
     @discardableResult
     public func unlinkSharedMemory(instance: String? = nil) throws -> [MemoryLinkResult] {
         try memoryTargets(instance).map { name in
@@ -85,7 +85,7 @@ extension Orchestrator {
         }
     }
 
-    /// Her instance'ın bağ durumu.
+    /// Link state of each instance.
     public func sharedMemoryStatus() throws -> [MemoryLinkResult] {
         try memoryTargets(nil).map { MemoryLinkResult(instance: $0, state: memoryState($0), backup: nil) }
     }
@@ -108,7 +108,7 @@ extension Orchestrator {
         return try store.load().instances.keys.sorted()
     }
 
-    /// `new`/`start` için: bağ yoksa ve ortak dosya varsa kur; asla üzerine yazma.
+    /// For `new`/`start`: link if there's no link and the shared file exists; never overwrite.
     func ensureSharedMemory(_ instance: String) {
         guard FileManager.default.fileExists(atPath: sharedMemoryFile.path),
               memoryState(instance) == .missing

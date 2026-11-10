@@ -1,19 +1,19 @@
 #!/bin/sh
 #
-# claude-orchestrator kurulum betiği.
+# claude-orchestrator installer.
 #
 #   curl -fsSL https://raw.githubusercontent.com/Yuix-Networks/claude-orchestrator/main/install.sh | sh
 #
-# Ortam değişkenleri:
-#   CLAUDE_ORCHESTRATOR_VERSION   Kurulacak sürüm (örn. 0.2.2). Varsayılan: en son sürüm.
-#   CLAUDE_ORCHESTRATOR_DIR       Kurulum dizini. Varsayılan: /usr/local/bin yazılabilirse
-#                                 orası, değilse ~/.local/bin.
+# Environment variables:
+#   CLAUDE_ORCHESTRATOR_VERSION   Version to install (e.g. 0.2.2). Default: the latest release.
+#   CLAUDE_ORCHESTRATOR_DIR       Install directory. Default: /usr/local/bin if it is
+#                                 writable, otherwise ~/.local/bin.
 #
-# Kaldırmak için:
+# To uninstall:
 #   curl -fsSL https://raw.githubusercontent.com/Yuix-Networks/claude-orchestrator/main/install.sh | sh -s -- --uninstall
 #
-# Betik sudo kullanmaz; yalnızca indirdiği tarball'ın sha256'sı sürümle birlikte
-# yayınlanan değerle eşleşirse kurar.
+# The script never uses sudo, and it only installs if the sha256 of the downloaded
+# tarball matches the value published with the release.
 
 set -eu
 
@@ -21,8 +21,8 @@ REPO="Yuix-Networks/claude-orchestrator"
 BINARY="claude-orchestrator"
 
 say()  { printf '%s\n' "$*"; }
-warn() { printf 'uyarı: %s\n' "$*" >&2; }
-die()  { printf 'hata: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'warning: %s\n' "$*" >&2; }
+die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 choose_dir() {
     if [ -n "${CLAUDE_ORCHESTRATOR_DIR:-}" ]; then
@@ -38,94 +38,95 @@ uninstall() {
     dir="$(choose_dir)"
     if [ -e "$dir/$BINARY" ]; then
         rm -f "$dir/$BINARY"
-        say "silindi: $dir/$BINARY"
+        say "removed: $dir/$BINARY"
     else
-        say "$dir içinde kurulu $BINARY bulunamadı"
+        say "no $BINARY installed in $dir"
     fi
-    say "instance verileri korunur: ~/Library/Application Support/claude-ctl/"
+    say "instance data is kept: ~/Library/Application Support/claude-ctl/"
     exit 0
 }
 
 case "${1:-}" in
     --uninstall) uninstall ;;
     "") ;;
-    *) die "bilinmeyen argüman: $1 (yalnızca --uninstall)" ;;
+    *) die "unknown argument: $1 (only --uninstall is supported)" ;;
 esac
 
-# --- Ön koşullar -------------------------------------------------------------
+# --- Prerequisites -----------------------------------------------------------
 
-[ "$(uname -s)" = "Darwin" ] || die "claude-orchestrator yalnızca macOS'ta çalışır"
+[ "$(uname -s)" = "Darwin" ] || die "claude-orchestrator only runs on macOS"
 
 macos_major="$(sw_vers -productVersion | cut -d. -f1)"
-[ "$macos_major" -ge 13 ] || die "macOS 13 (Ventura) veya üstü gerekli (bu makine: $(sw_vers -productVersion))"
+[ "$macos_major" -ge 13 ] || die "macOS 13 (Ventura) or later is required (this machine: $(sw_vers -productVersion))"
 
 for tool in curl tar shasum; do
-    command -v "$tool" >/dev/null 2>&1 || die "'$tool' bulunamadı"
+    command -v "$tool" >/dev/null 2>&1 || die "'$tool' not found"
 done
 
-# --- Sürüm -------------------------------------------------------------------
+# --- Version -----------------------------------------------------------------
 
 version="${CLAUDE_ORCHESTRATOR_VERSION:-}"
 if [ -z "$version" ]; then
-    # API yerine yönlendirme kullanılır: GitHub API'nin oturumsuz istek sınırına takılmaz.
+    # Follow the redirect instead of calling the API, so we don't hit the GitHub API's
+    # unauthenticated rate limit.
     latest_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")" \
-        || die "en son sürüm öğrenilemedi"
+        || die "could not determine the latest release"
     version="${latest_url##*/}"
 fi
 version="${version#v}"
 case "$version" in
     [0-9]*.[0-9]*.[0-9]*) ;;
-    *) die "geçersiz sürüm: '$version'" ;;
+    *) die "invalid version: '$version'" ;;
 esac
 
 archive="$BINARY-$version.tar.gz"
 base="https://github.com/$REPO/releases/download/v$version"
 
-# --- İndirme ve doğrulama ----------------------------------------------------
+# --- Download and verify -----------------------------------------------------
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
-say "claude-orchestrator $version indiriliyor…"
-curl -fsSL -o "$tmp/$archive" "$base/$archive" || die "indirilemedi: $base/$archive"
-curl -fsSL -o "$tmp/$archive.sha256" "$base/$archive.sha256" || die "sağlama toplamı indirilemedi"
+say "downloading claude-orchestrator $version…"
+curl -fsSL -o "$tmp/$archive" "$base/$archive" || die "download failed: $base/$archive"
+curl -fsSL -o "$tmp/$archive.sha256" "$base/$archive.sha256" || die "could not download the checksum"
 
 expected="$(awk '{print $1}' "$tmp/$archive.sha256")"
 actual="$(shasum -a 256 "$tmp/$archive" | awk '{print $1}')"
 [ -n "$expected" ] && [ "$expected" = "$actual" ] \
-    || die "sha256 uyuşmuyor (beklenen $expected, inen $actual) — kurulum yapılmadı"
+    || die "sha256 mismatch (expected $expected, got $actual); nothing was installed"
 
-tar -xzf "$tmp/$archive" -C "$tmp" "$BINARY" || die "arşiv açılamadı"
+tar -xzf "$tmp/$archive" -C "$tmp" "$BINARY" || die "could not extract the archive"
 chmod 755 "$tmp/$BINARY"
-"$tmp/$BINARY" --version >/dev/null 2>&1 || die "indirilen binary bu makinede çalışmadı"
+"$tmp/$BINARY" --version >/dev/null 2>&1 || die "the downloaded binary does not run on this machine"
 
-# --- Kurulum -----------------------------------------------------------------
+# --- Install -----------------------------------------------------------------
 
 dir="$(choose_dir)"
-mkdir -p "$dir" || die "dizin oluşturulamadı: $dir"
-[ -w "$dir" ] || die "$dir yazılabilir değil — CLAUDE_ORCHESTRATOR_DIR ile başka bir dizin seç"
+mkdir -p "$dir" || die "could not create directory: $dir"
+[ -w "$dir" ] || die "$dir is not writable; choose another directory with CLAUDE_ORCHESTRATOR_DIR"
 
 if command -v brew >/dev/null 2>&1 && brew list --formula "$BINARY" >/dev/null 2>&1; then
-    warn "Homebrew ile de kurulu; PATH sırasına göre hangisinin çalışacağı değişir (brew uninstall $BINARY)"
+    warn "also installed with Homebrew; which one runs depends on your PATH order (brew uninstall $BINARY)"
 fi
 
-# Geçici dosyadan atomik yer değiştirme: çalışan bir kopya bozulmaz.
+# Atomic replace from a temporary file, so a running copy is not corrupted.
 cp "$tmp/$BINARY" "$dir/.$BINARY.new"
 mv -f "$dir/.$BINARY.new" "$dir/$BINARY"
 
-say "kuruldu: $dir/$BINARY ($("$dir/$BINARY" --version))"
+say "installed: $dir/$BINARY ($("$dir/$BINARY" --version))"
 
 case ":$PATH:" in
     *":$dir:"*) ;;
     *)
-        warn "$dir PATH'te değil. Kabuk yapılandırmana ekle:"
+        warn "$dir is not in your PATH. Add it to your shell config:"
         say "  echo 'export PATH=\"$dir:\$PATH\"' >> ~/.zshrc && exec zsh"
         ;;
 esac
 
-[ -d /Applications/Claude.app ] || warn "Claude Desktop /Applications/Claude.app konumunda bulunamadı"
+[ -d /Applications/Claude.app ] || warn "Claude Desktop was not found at /Applications/Claude.app"
 
 say ""
-say "başlamak için:"
+say "to get started:"
 say "  $BINARY new is && $BINARY signin is --exclusive"
 say "  $BINARY help"

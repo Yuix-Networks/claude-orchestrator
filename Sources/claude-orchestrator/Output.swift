@@ -1,16 +1,16 @@
 import Foundation
 
-/// Çıkış kodları.
+/// Exit codes.
 public enum ExitCode {
     public static let success: Int32 = 0
     public static let runtime: Int32 = 1
     public static let usage: Int32 = 2
 }
 
-/// Konsol çıktısı ve hata yönetimi.
+/// Console output and error handling.
 enum Output {
     static func error(_ message: String, code: Int32) -> Never {
-        FileHandle.standardError.write(Data("hata: \(message)\n".utf8))
+        FileHandle.standardError.write(Data("error: \(message)\n".utf8))
         exit(code)
     }
 
@@ -18,11 +18,11 @@ enum Output {
         print(text)
     }
 
-    /// JSON çıktılarının şema sürümü. Alan silme/yeniden adlandırma gibi
-    /// kırıcı değişikliklerde artırılır; yeni alan eklemek artırmayı gerektirmez.
+    /// Schema version of the JSON output. Bumped on breaking changes such as
+    /// removing or renaming a field; adding a new field does not require a bump.
     static let schemaVersion = 1
 
-    /// Nesneyi JSON olarak yazar; `schemaVersion` alanı her çıktıya eklenir.
+    /// Prints the object as JSON; every output gets a `schemaVersion` field.
     static func json(_ value: [String: Any]) {
         var value = value
         if value["schemaVersion"] == nil { value["schemaVersion"] = schemaVersion }
@@ -34,21 +34,22 @@ enum Output {
     }
 }
 
-/// Etkileşimli onay.
+/// Interactive confirmation.
 enum Confirm {
-    /// Terminalde evet/hayır sorar. Terminal yoksa (betik, boru) onay
-    /// varsayılmaz: `--yes` zorunlu olduğu bildirilir.
+    /// Asks yes/no in the terminal. Without a terminal (script, pipe) consent
+    /// is not assumed: the user is told that `--yes` is required.
     static func ask(_ prompt: String) -> Bool {
         guard isatty(STDIN_FILENO) != 0 else {
-            Output.error("\(prompt)\nonay için terminal yok — devam etmek için --yes ekle", code: ExitCode.usage)
+            Output.error("\(prompt)\nno terminal to confirm in: add --yes to continue", code: ExitCode.usage)
         }
-        FileHandle.standardError.write(Data("\(prompt)\nDevam edilsin mi? [e/H] ".utf8))
+        FileHandle.standardError.write(Data("\(prompt)\nContinue? [y/N] ".utf8))
         guard let answer = readLine()?.trimmingCharacters(in: .whitespaces).lowercased() else { return false }
+        // "e"/"evet" (Turkish yes) are still accepted for existing users.
         return ["e", "evet", "y", "yes"].contains(answer)
     }
 }
 
-/// Sürüm (release etiketiyle aynı tutulur: `v<current>`).
+/// Version (kept in step with the release tag: `v<current>`).
 enum AppVersion {
     static let current = "0.2.8"
 }

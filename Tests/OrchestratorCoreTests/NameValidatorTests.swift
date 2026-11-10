@@ -45,27 +45,27 @@ final class NameValidatorTests: XCTestCase {
     func testErrorMessageContainsTheRejectedName() {
         do {
             try NameValidator.validate("Bad Name")
-            XCTFail("geçersiz ad reddedilmeliydi")
+            XCTFail("the invalid name should have been rejected")
         } catch let error as OrchestratorError {
             guard case let .invalidName(message) = error else {
-                return XCTFail("invalidName bekleniyordu, gelen: \(error)")
+                return XCTFail("expected invalidName, got: \(error)")
             }
-            XCTAssertTrue(message.contains("Bad Name"), "mesaj instance adını içermeli: \(message)")
+            XCTAssertTrue(message.contains("Bad Name"), "message should contain the instance name: \(message)")
         } catch {
-            XCTFail("OrchestratorError bekleniyordu: \(error)")
+            XCTFail("expected OrchestratorError: \(error)")
         }
     }
 
     private func assertInvalidName(_ name: String, file: StaticString = #filePath, line: UInt = #line) {
         do {
             try NameValidator.validate(name)
-            XCTFail("'\(name)' reddedilmeliydi", file: file, line: line)
+            XCTFail("'\(name)' should have been rejected", file: file, line: line)
         } catch let error as OrchestratorError {
             guard case .invalidName = error else {
-                return XCTFail("invalidName bekleniyordu, gelen: \(error)", file: file, line: line)
+                return XCTFail("expected invalidName, got: \(error)", file: file, line: line)
             }
         } catch {
-            XCTFail("OrchestratorError bekleniyordu: \(error)", file: file, line: line)
+            XCTFail("expected OrchestratorError: \(error)", file: file, line: line)
         }
     }
 }

@@ -35,7 +35,7 @@ final class DoctorTests: XCTestCase {
 
         let version = checks.first { $0.name == "claude-version" }
         XCTAssertEqual(version?.status, .warn)
-        XCTAssertTrue(version?.detail.contains("1.0.0") == true, "eski sürüm belirtilmeli")
+        XCTAssertTrue(version?.detail.contains("1.0.0") == true, "the old version should be mentioned")
     }
 
     func testReportsOkWhenClaudeVersionUnchanged() throws {
@@ -48,7 +48,7 @@ final class DoctorTests: XCTestCase {
     }
 
     func testFailsWhenProfileDirectoryIsMissing() {
-        let instance = Instance(name: "yok", workdir: nil)
+        let instance = Instance(name: "missing", workdir: nil)
 
         let checks = makeDoctor().checks(for: instance, state: nil)
 
@@ -82,7 +82,7 @@ final class DoctorTests: XCTestCase {
     }
 
     func testWarnsWhenWorkdirIsMissing() {
-        let instance = Instance(name: "work", workdir: "/tmp/yok-boyle-bir-klasor-\(UUID().uuidString)")
+        let instance = Instance(name: "work", workdir: "/tmp/no-such-folder-\(UUID().uuidString)")
 
         let checks = makeDoctor().checks(for: instance, state: nil)
 
@@ -100,7 +100,7 @@ final class DoctorTests: XCTestCase {
     }
 
     func testAppChecksReportMissingClaudeApp() {
-        let checks = makeDoctor().appChecks(appPath: "/tmp/yok-boyle-bir-uygulama.app")
+        let checks = makeDoctor().appChecks(appPath: "/tmp/no-such-app.app")
 
         XCTAssertEqual(checks.first { $0.name == "claude-app" }?.status, .fail)
     }

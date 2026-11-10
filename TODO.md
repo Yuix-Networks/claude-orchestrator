@@ -1,238 +1,238 @@
 # TODO
 
-`claude-ctl` v0.1.0 (2026-11-08) sonrası için yapılacaklar. **2026-11-08 güncellemesi:**
-§1 ve §2 tamamlandı (araç artık `claude-orchestrator`); açık kalanlar §3 araştırma
-başlıkları ve §4'teki dağıtım işleri. Her maddenin altında ne yapıldığı/neden
-yapılmadığı not edildi. Bölümler öncelik sırasına göre
-değil, bağımlılık sırasına göre dizilmiştir: §1 yol haritasının omurgası, §2–§4 bunu
-tamamlayan/serbest bırakılan işler.
+Work planned after `claude-ctl` v0.1.0 (2026-11-08). **Update 2026-11-08:**
+§1 and §2 are done (the tool is now `claude-orchestrator`); what remains open is the §3
+research topics and the distribution work in §4. Each item notes what was done or why it
+was not done. Sections are ordered by
+dependency, not priority: §1 is the backbone of the roadmap, §2–§4 is work that
+complements it or is unblocked by it.
 
-Durum işaretleri: `[ ]` yapılmadı · `[~]` kısmen yapıldı · `[x]` bitti
+Status markers: `[ ]` not done · `[~]` partly done · `[x]` done
 
 ---
 
-## 1. Oturum yönetimi: instance'lar arası konuşma transferi
+## 1. Session management: moving conversations between instances
 
-Bugün `claude-ctl` **instance** yönetiyor; her instance kendi Claude Code config dizinine
-sahip, ama oturumlar o instance'a hapsoluyor. Hedef: oturumları instance'lar arasında
-taşınabilir kılmak — "1. instance'ın son oturumu 2. instance'a gitsin" senaryosu.
+Today `claude-ctl` manages **instances**; each instance has its own Claude Code config
+directory, but sessions are locked inside that instance. Goal: make sessions portable
+between instances — the "send instance 1's last session to instance 2" scenario.
 
-### 1.1 Komut adı: `claude-ctl` → `claude-orchestrator` `[x]`
+### 1.1 Command name: `claude-ctl` → `claude-orchestrator` `[x]`
 
-Araç artık sadece çoklu instance değil, **oturum orkestrasyonu** aracı; adı buna uygun
-hale getirilmeli.
+The tool is no longer just a multi-instance tool but a **session orchestration** tool; its
+name should reflect that.
 
-- [x] Paket/binary/ürün adı `claude-orchestrator` olsun (`Package.swift` `name`/`products`,
-      `ClaudeCtlCore`/`ClaudeCtlAgent` modül adları, `ClaudeCtl` tipi → `Orchestrator`)
+- [x] Make the package/binary/product name `claude-orchestrator` (`Package.swift` `name`/`products`,
+      the `ClaudeCtlCore`/`ClaudeCtlAgent` module names, the `ClaudeCtl` type → `Orchestrator`)
       → `OrchestratorCore`, `OrchestratorAgent`, `Orchestrator`, `OrchestratorError`
-- [x] `Output`/`Usage` metinleri ve README güncellensin
-- [x] Homebrew formülü yeniden adlandırılsın (`Formula/claude-orchestrator.rb`) → tap:
-      [Yuix-Networks/homebrew-tap](https://github.com/Yuix-Networks/homebrew-tap); ayrıca
-      `install.sh` (curl). Her sürümde tap formülünün `url`/`sha256`'sı elle güncelleniyor
-- [x] Release iş akışı yeni adı üretsin
-- [x] **Kırıcı değişiklik**: v0.1.0'ı kullananlar için `claude-ctl` → `claude-orchestrator`
-      yönlendirmesi (eski ad için sembolik link veya "bu komut taşındı" uyarısı) eklensin
-      → **Karar (v0.2.3): yönlendirme yok.** `claude-ctl` takma adı kaldırıldı; tek komut
-      `claude-orchestrator`. Veri dizini ve LaunchAgent etiketi eski adıyla kalıyor
-- [x] Veri dizini adı kararı: `~/Library/Application Support/claude-ctl/` kalsın mı, yoksa
-      `claude-orchestrator/` olsun mu? (Kalsın → mevcut instance'lar bozulmaz; değişirse
-      taşıma/migration gerekir. **Öneri: kalsın.**) → **Kaldı.** LaunchAgent etiketi
-      `com.claude-ctl.agent` de aynı sebeple korundu.
+- [x] Update the `Output`/`Usage` text and the README
+- [x] Rename the Homebrew formula (`Formula/claude-orchestrator.rb`) → tap:
+      [Yuix-Networks/homebrew-tap](https://github.com/Yuix-Networks/homebrew-tap); plus
+      `install.sh` (curl). The tap formula's `url`/`sha256` are updated by hand for every release
+- [x] Make the release workflow produce the new name
+- [x] **Breaking change**: add a `claude-ctl` → `claude-orchestrator` redirect for v0.1.0
+      users (a symlink for the old name, or a "this command has moved" warning)
+      → **Decision (v0.2.3): no redirect.** The `claude-ctl` alias was removed; the only
+      command is `claude-orchestrator`. The data directory and the LaunchAgent label keep the old name
+- [x] Data directory name decision: keep `~/Library/Application Support/claude-ctl/`, or
+      switch to `claude-orchestrator/`? (Keeping it → existing instances don't break; changing it
+      needs a migration. **Recommendation: keep it.**) → **Kept.** The LaunchAgent label
+      `com.claude-ctl.agent` was kept for the same reason.
 
-### 1.2 Oturum modeli ve nerede yaşıyor `[x]`
+### 1.2 The session model and where it lives `[x]`
 
-Claude Code oturumları instance'ın `CLAUDE_CONFIG_DIR` (= `claude-code/`) altında:
+Claude Code sessions live under the instance's `CLAUDE_CONFIG_DIR` (= `claude-code/`):
 
 ```
 <config-dir>/
 ├── projects/<cwd-slug>/
-│   ├── <session-id>.jsonl              # oturum transcript'i (her mesaj bir satır)
-│   ├── <session-id>/subagents/*.jsonl  # alt ajan transcript'leri
-│   └── sessions-index.json             # proje oturum indeksi
-├── history.jsonl                       # komut geçmişi
-└── todos/<session-id>.json             # oturumun TODO dosyaları
+│   ├── <session-id>.jsonl              # session transcript (one message per line)
+│   ├── <session-id>/subagents/*.jsonl  # subagent transcripts
+│   └── sessions-index.json             # project session index
+├── history.jsonl                       # command history
+└── todos/<session-id>.json             # the session's TODO files
 ```
 
-- [x] `SessionStore` tipi: `<config-dir>` ağacını okuyup oturum listesi çıkarsın
-      (id, cwd-slug, gerçek cwd, başlangıç/bitiş zamanı, mesaj sayısı, ilk/son mesaj özeti)
-      → 3,2 GB / 665 transcript'lik gerçek kurulumda tam JSON çözümü 39 sn sürdü; mmap +
-      bayt kalıbı süzgeci ile 5 sn, yol/boyut/mtime önbelleğiyle 0,3 sn. Desktop başlığı
-      `<profil>/claude-code-sessions/<hesap>/<org>/local_*.json` → `cliSessionId` ile eşleniyor
-- [x] `cwd-slug` çözümlemesi: `/Users/x/workspace/vpn` → `-Users-x-workspace-vpn`
-      (dikkat: `a-b` ile `a/b` aynı slug'a düşüyor → çakışma tespiti gerekli)
-      → hedefteki `sessions-index.json` → `originalPath` farklıysa transfer reddediliyor
-- [x] Claude Desktop'un **kendi sohbet geçmişi** ayrı bir konu — profil içindeki
-      `IndexedDB/https_claude.ai_0.indexeddb.leveldb` altında, hesaba bağlı.
-      Transfer edilebilir mi? (bkz. §1.5) → hayır, bkz. §1.5 kararı
+- [x] A `SessionStore` type that reads the `<config-dir>` tree and builds the session list
+      (id, cwd-slug, real cwd, start/end time, message count, first/last message summary)
+      → on a real setup with 3.2 GB / 665 transcripts, full JSON decoding took 39 s; with mmap +
+      a byte-pattern filter it took 5 s, and 0.3 s with a path/size/mtime cache. The Desktop title
+      comes from `<profile>/claude-code-sessions/<account>/<org>/local_*.json` → matched on `cliSessionId`
+- [x] `cwd-slug` resolution: `/Users/x/workspace/vpn` → `-Users-x-workspace-vpn`
+      (careful: `a-b` and `a/b` map to the same slug → collisions must be detected)
+      → if `originalPath` in the target's `sessions-index.json` differs, the transfer is refused
+- [x] Claude Desktop's **own chat history** is a separate topic — it lives in the profile under
+      `IndexedDB/https_claude.ai_0.indexeddb.leveldb` and is tied to the account.
+      Can it be transferred? (see §1.5) → no, see the §1.5 decision
 
-### 1.3 `session` komut ailesi `[x]`
+### 1.3 The `session` command family `[x]`
 
 ```
-claude-orchestrator session list [--instance <ad>] [--project <yol>] [--json]
-claude-orchestrator session show <session-id> [--instance <ad>]
+claude-orchestrator session list [--instance <name>] [--project <path>] [--json]
+claude-orchestrator session show <session-id> [--instance <name>]
 claude-orchestrator session move <session-id> --to <instance> [--force]
 claude-orchestrator session copy <session-id> --to <instance>
 claude-orchestrator session last --from <instance> --to <instance>
 ```
 
-- [x] `list`: tüm instance'ların oturumlarını bir tabloda göster (instance, proje, zaman,
-      mesaj sayısı); varsayılan: çalışan instance'lar → **sapma:** varsayılan *tüm*
-      instance'lar, `--running` ile yalnız çalışanlar (hiç instance çalışmıyorken boş
-      liste kafa karıştırıyordu)
-- [x] `show`: tek oturumun ayrıntısı (cwd, mesaj önizlemesi, araç çağrıları, süre)
-- [x] `move`: oturumu hedef instance'ın config dizinine **taşı** (kaynak silinir)
-- [x] `copy`: kopyala (kaynak kalır)
-- [x] `last --from --to`: "1. instance'ın son oturumunu 2. instance'a taşı" — istenen
-      senaryonun kısayolu (`move` + "en son" seçimi); `--copy` ile kopyalar
-- [x] Her komut `--json` desteklesin (mevcut komutlarla tutarlılık)
-- [x] Ek: `default` adı instance dışı Claude kurulumunu (`~/.claude`) gösteriyor; yeni
-      instance'a bu ad verilemiyor. Oturum kimliği yerine benzersiz önek kabul ediliyor
+- [x] `list`: show the sessions of every instance in one table (instance, project, time,
+      message count); default: running instances → **deviation:** the default is *all*
+      instances, `--running` shows only running ones (an empty list when no instance was
+      running was confusing)
+- [x] `show`: details of one session (cwd, message preview, tool calls, duration)
+- [x] `move`: **move** the session into the target instance's config directory (the source is removed)
+- [x] `copy`: copy it (the source stays)
+- [x] `last --from --to`: "move instance 1's last session to instance 2" — a shortcut for the
+      requested scenario (`move` + picking the latest); `--copy` copies instead
+- [x] Every command supports `--json` (consistent with the existing commands)
+- [x] Extra: the name `default` refers to the Claude install outside any instance (`~/.claude`); a new
+      instance can't be given this name. A unique prefix is accepted in place of a session id
 
-### 1.4 Transfer mekaniği `[x]`
+### 1.4 Transfer mechanics `[x]`
 
-- [x] Kopyalanacak dosyalar: `projects/<slug>/<session-id>.jsonl`, varsa
-      `projects/<slug>/<session-id>/` (alt ajanlar), `todos/<session-id>.json`,
-      ve hedefte `sessions-index.json` kaydının eklenmesi/güncellenmesi (kayıttaki mutlak
-      config yolları hedefe çevriliyor). Ek olarak Desktop kenar çubuğu üst verisi hedefin
-      etkin hesap/org dizinine, hesaba bağlı alanları atılarak yazılıyor — **deneysel:**
-      girişli iki hesapla canlı doğrulanmadı
-- [x] **Hedef instance çalışıyorsa** uyarılmalı (dosya kilidi riski) — ya durdurulsun ya da
-      `--force` ile devam edilsin (`move` kaynağın da durmuş olmasını istiyor)
-- [x] Hedef instance'ın CLI sürümü kaynakla farklıysa uyarı (transcript formatı değişebilir)
-- [x] Çakışma: hedefte aynı `session-id` varsa ne olacağı açıkça tanımlansın
-      (varsayılan: reddet, `--force` ile üzerine yaz)
-- [~] Transfer sonrası doğrulama: hedefte `claude --resume <session-id>` çalışıyor mu?
-      (otomatik test: `session show` hedefte oturumu görebiliyor) → transfer sonunda hedef
-      `SessionStore` oturumu bulamazsa hata; smoke testi `session show` ile doğruluyor.
-      Gerçek `claude --resume` girişli bir instance gerektirdiği için otomatikleştirilmedi
-- [x] Kopyalama **atomik** olsun (yarım kalmış transcript olmasın): geçici dosya + rename
-- [x] Geri alma: `move` öncesi yedek alınsın mı? (`backups/` Claude Code'un kendi
-      `~/.claude/backups` mekanizmasına benzer) → `move` kaynağı silmiyor,
-      `backups/<zaman>-<id>/` altına taşıyor (+ `manifest.json`). Otomatik geri yükleme
-      komutu yok; dosyalar elle geri konabilir
+- [x] Files to copy: `projects/<slug>/<session-id>.jsonl`, and if present
+      `projects/<slug>/<session-id>/` (subagents), `todos/<session-id>.json`,
+      plus adding/updating the entry in the target's `sessions-index.json` (absolute
+      config paths in the entry are rewritten for the target). In addition, the Desktop sidebar
+      metadata is written to the target's active account/org directory, with the account-bound fields
+      dropped — **experimental:** not verified live with two signed-in accounts
+- [x] **If the target instance is running**, warn (file lock risk) — either stop it or
+      continue with `--force` (`move` also requires the source to be stopped)
+- [x] Warn if the target instance's CLI version differs from the source (the transcript format may change)
+- [x] Collisions: define clearly what happens if the target already has the same `session-id`
+      (default: refuse, overwrite with `--force`)
+- [~] Post-transfer check: does `claude --resume <session-id>` work in the target?
+      (automated test: `session show` can see the session in the target) → if the target
+      `SessionStore` can't find the session at the end of the transfer, it's an error; the smoke test checks
+      it with `session show`. A real `claude --resume` needs a signed-in instance, so it wasn't automated
+- [x] Copying must be **atomic** (no half-written transcripts): temporary file + rename
+- [x] Undo: take a backup before `move`? (`backups/`, similar to Claude Code's own
+      `~/.claude/backups` mechanism) → `move` doesn't delete the source; it moves it to
+      `backups/<time>-<id>/` (+ `manifest.json`). There is no automatic restore
+      command; the files can be put back by hand
 
-### 1.5 Claude Desktop sohbet geçmişi (ayrı ve zor başlık) `[x]` — karar: yapılmayacak
+### 1.5 Claude Desktop chat history (a separate, hard topic) `[x]` — decision: won't do
 
-- [x] Chat sekmesinin konuşmaları profilin IndexedDB'sinde; hesaba bağlı (claude.ai).
-      Instance'lar farklı hesaplarla girildiyse taşımanın anlamı nedir? karar verilsin
-      → Sohbetler claude.ai sunucusunda yaşıyor; IndexedDB yalnızca önbellek. Aynı hesaplı
-      instance onları zaten görüyor, farklı hesaplı instance göremez. Taşıma anlamsız.
-- [x] Aynı hesapla iki instance arasında taşıma mümkün mü? (IndexedDB kopyalama,
-      uygulama kapalıyken, LevelDB bütünlüğü korunarak)
-- [x] Alternatif: taşıma yerine **paylaşma** (symlink) — gerek yok (yukarıdaki sebep) — Parall'ın Cowork için yaptığı gibi
+- [x] The Chat tab's conversations are in the profile's IndexedDB and tied to the account (claude.ai).
+      If the instances are signed in with different accounts, what would moving even mean? Decide
+      → Chats live on the claude.ai server; IndexedDB is only a cache. An instance with the same
+      account already sees them, and an instance with a different account can't. Moving them is pointless.
+- [x] Is moving between two instances with the same account possible? (copying IndexedDB
+      while the app is closed, keeping LevelDB intact)
+- [x] Alternative: **sharing** (symlink) instead of moving — not needed (reason above) — like what Parall does for Cowork
 
-### 1.6 Instance yaşam döngüsü `[x]`
+### 1.6 Instance lifecycle `[x]`
 
-- [x] `new` komutu instance'ı "boş" değil, **oturumlarıyla** birlikte oluşturabilsin
-      ("yeni bir instance yaratacak, içinde oturumlar olacak") → `new --sessions-from`.
-      Ayrıca `--workdir` artık isteğe bağlı (hesap başına instance senaryosu)
-- [x] `remove --purge` oturumları da silmeli (şu an config dizinini siliyor ✓ doğrula)
-- [x] Instance klonlama: `claude-orchestrator clone <instance> --as <yeni-ad>` —
-      profil + config dizini + oturumlarla birlikte → `clone <ad> --as <yeni>`; kaynak
-      çalışırken reddediliyor; APFS klonu (400 MB'lık denemede ek disk ~0)
+- [x] The `new` command can create an instance **with sessions** instead of "empty"
+      ("create a new instance that already has sessions in it") → `new --sessions-from`.
+      Also, `--workdir` is now optional (the one-instance-per-account scenario)
+- [x] `remove --purge` must delete sessions too (it currently deletes the config directory ✓ verify)
+- [x] Instance cloning: `claude-orchestrator clone <instance> --as <new-name>` —
+      with profile + config directory + sessions → `clone <name> --as <new>`; refused while the
+      source is running; APFS clone (~0 extra disk in a 400 MB trial)
 
-### 1.7 Ortak projeler (Desktop "environment") `[x]`
+### 1.7 Shared projects (Desktop "environment") `[x]`
 
-- [x] Projeler merkezi kayıtta (`config.json` → `projects`); `project add/list/remove/sync/import`
-      (takma ad `env`). Ortam = `ccd-session-presets.json` → `byAccount[hesap].presets[]`
-- [x] `new` ve her `start` kayıtlı projeleri uygular; giriş öncesi yalnızca güvenli klasör
-- [x] Profildeki tüm hesaplara yazılır; aynı klasörde var olan ortamın ayarlarına dokunulmaz
-- [ ] Canlı doğrulama: girişli bir instance'ta yazılan ortamın Code sekmesinde göründüğü
-      henüz gözle doğrulanmadı (dosya biçimi gerçek profildeki ortamlarla aynı)
-- [x] `project apply` / `project export`: elle düzenlenen `projects.json`
-      (`~/.config/claude-orchestrator/`), önce tüm dosya doğrulanır, `--dry-run`, `--prune`
-- [x] `defaults` (ortak ek klasörler, izin modu) ve proje başına `permissionMode`
-      (`preferences.epitaxyPrefs` → `epitaxy-folder-permission-mode-v2.<hesap>`); org kısıtına
-      (`bypassPermissionsGateByAccount`) dokunulmuyor
-- [ ] İzin modunun Desktop'ta gerçekten varsayılan olarak seçildiği girişli bir instance'ta
-      gözle doğrulanmadı (anahtarlar gerçek profildeki kayıtlarla aynı biçimde)
-- [x] `memory`: `~/.claude/CLAUDE.md` her instance'ın config dizinine sembolik bağ
-- [x] Desktop ortam listesini arayüz deposunda (`Local Storage` → `ccd-session-presets.<hesap>`)
-      tutuyor; `ccd-session-presets.json`'u hesap başına yalnızca ilk açılışta içeri alıyor
-      (`fileMirrored`), sonra ezip geçiyor. `--reset-desktop` profil kapalıyken `Local Storage`'ı
-      yedekleyip listeyi yeniden içeri aldırıyor (serdar'da canlı doğrulandı: açılış sonrası 41 ortam
-      korundu, Claude dosyayı yeniden yazmadı)
-- [ ] Daha hassas yol: yalnızca `ccd-session-presets.<hesap>` anahtarını LevelDB'de düzenlemek
-      (arayüz tercihleri korunur; Claude'un iç biçimine bağlı)
-- [ ] Çalışan instance'a anında yansıtma yok (Claude dosyayı bellekte tutuyor; yeniden
-      başlatma gerekiyor)
-
----
-
-## 2. Ertelenen inceleme bulguları `[x]`
-
-`claude-ctl v1` için yapılan kod incelemesinde bulunan, bilinçli olarak ertelenen küçük
-işler. Hepsi çalışma ama önceliği düşük.
-
-- [x] `list --json` çıktısı `{"instances":[…]}` sarmalayıcısı kullanıyor; düz dizi bekleniyor
-      geriye dönük uyum gerekiyor. (JSON tipi düzeltildi: `profileSizeBytes` artık sayı.)
-      → **Karar: sarmalayıcı kalıyor** (smoke testi ve betikler `instances` anahtarına bağlı;
-      sarmalayıcı yeni alan eklemeye izin veriyor). Tüm JSON çıktılarına `schemaVersion: 1`
-- [x] Tohumlama çoklu hesapta **alfabetik ilk** hesabı seçiyor; aktif hesabı belirleyen
-      mantık yok → preset yanlış hesaba yazılabiliyor
-      (`ProfileSeeder.addSessionPreset`) → `config.json` → `lastKnownAccountUuid`, sonra
-      `bootSideSessions.accountUuid`; belirsizse preset yazılmıyor (tahmin yok)
-- [x] `LogReader` tüm `main.log` dosyasını belleğe alıyor (son N satır için gereksiz);
-      `logs -f` dosya döndürmeyi (rotation) takip etmiyor, takip sessizce duruyor
-      → 64 KB bloklarla sondan okuma; `LogFollower` inode/boyut değişimini algılıyor
-- [x] `launchctl bootstrap` hatası yutuluyor; CLI "kuruldu" diyor ama agent yüklenmemiş
-      olabilir. Ayrıca `KeepAlive: true` + duplicate başlatmada launchctl respawn döngüsü
-      (`LaunchAgentInstaller`, `AgentCommand`) → önce `bootout`, `bootstrap` hatası
-      raporlanıyor; `KeepAlive: {SuccessfulExit: false}` ve ikinci örnek 0 ile çıkıyor
-- [x] Agent singleton kilidi `O_EXCL` ile değil yaz-oku ile alınıyor → TOCTOU yarışı;
-      ayrıca ölmüş PID dosyası agent'ın kalıcı olarak "zaten çalışıyor" demesine yol açıyor
-      (`StatusItemController.acquireSingleton`) → `agent.lock` üzerinde `flock`
-- [x] `remove --purge` için onay/yedek yok; tek komut ~500 MB + oturumları siliyor
-      → onay soruyor (terminal yoksa `--yes` şart), varsayılan Çöp Kutusu, `--permanent`
-      ile kalıcı
-- [x] `ProfileSeeder.seed(instanceName:workdir:)` ölü kod → silindi
-- [x] `StatusItemController.refresh()` `statusItems` sözlüğünü iterasyon sırasında
-      değiştiriyor (bugün güvenli, kırılgan) ve her 5 saniyede tüm menüleri yeniden
-      kuruyor (UI gereksiz titreme) → anahtar kopyası üzerinde dönülüyor; menü yalnızca
-      durum değişince kuruluyor. Ek: durmuş instance için menüye "Başlat" eklendi
+- [x] Projects are in a central registry (`config.json` → `projects`); `project add/list/remove/sync/import`
+      (alias `env`). Environment = `ccd-session-presets.json` → `byAccount[account].presets[]`
+- [x] `new` and every `start` apply the registered projects; before sign in, only the trusted folder
+- [x] Written to every account in the profile; settings of an existing environment for the same folder are left untouched
+- [ ] Live check: not yet confirmed by eye that a written environment shows up in the Code tab of a
+      signed-in instance (the file format matches the environments in a real profile)
+- [x] `project apply` / `project export`: a hand-edited `projects.json`
+      (`~/.config/claude-orchestrator/`), the whole file is validated first, `--dry-run`, `--prune`
+- [x] `defaults` (shared additional folders, permission mode) and per-project `permissionMode`
+      (`preferences.epitaxyPrefs` → `epitaxy-folder-permission-mode-v2.<account>`); the org restriction
+      (`bypassPermissionsGateByAccount`) is left untouched
+- [ ] Not confirmed by eye on a signed-in instance that Desktop actually selects the permission mode
+      as the default (the keys have the same format as the entries in a real profile)
+- [x] `memory`: `~/.claude/CLAUDE.md` is symlinked into every instance's config directory
+- [x] Desktop keeps the environment list in its UI store (`Local Storage` → `ccd-session-presets.<account>`);
+      it imports `ccd-session-presets.json` only on the first launch per account
+      (`fileMirrored`) and overwrites it after that. `--reset-desktop` backs up `Local Storage` while the profile
+      is closed and makes Desktop import the list again (verified live on serdar: 41 environments
+      kept after launch, Claude did not rewrite the file)
+- [ ] A more precise approach: edit only the `ccd-session-presets.<account>` key in LevelDB
+      (keeps UI preferences; depends on Claude's internal format)
+- [ ] No instant update for a running instance (Claude keeps the file in memory; a
+      restart is needed)
 
 ---
 
-## 3. Bilinen sınırların kaldırılması
+## 2. Deferred review findings `[x]`
 
-README'de "bilinen sınırlar" olarak belgelenenler. Hiçbiri v1 için engel değildi.
+Small items found in the code review of `claude-ctl v1` and deliberately deferred.
+All of them work, but they are low priority.
 
-- [ ] **Ayrı Dock ikonu / menü çubuğu adı.** Instance'lar aynı Claude ikonunu paylaşıyor.
-      Ayrı kimlik için hedef app'in bundle kimliğinin değişmesi gerekiyor; bu yol macOS'un
-      hardened-runtime / library-validation duvarlarına çarpıyor (Electron klonu denendi:
-      sandbox extension + helper adlandırma engelleri). Parall bu alanda reverse
-      engineering ile çözmüş — açık kaynak olarak yeniden üretmek ayrı bir araştırma projesi.
-      Ara yol: rozetli menü çubuğu ikonu (mevcut) + `app.dock.setBadge` benzeri bir kanal
-- [ ] **Paylaşılan log dosyaları** (`~/Library/Logs/Claude/`). Instance başına ayrı log için
-      `app.setPath("logs", …)` gerekiyor; Claude bunu yalnızca `CLAUDE_USER_DATA_DIR`
-      (imzalı build'de yok sayılıyor) altında yapıyor. `logs` şu an başlangıç zamanına
-      göre filtreliyor (kesin ayrım yok)
-- [~] **`claude://` handler çakışması.** Derin bağlantı tek instance'a gidiyor; ölçüm
-      (hangi instance'a gittiği) hâlâ yapılmadı → §1.1/§1.3 ile birlikte çözülebilir
-      → `signin --exclusive` diğer instance'ları giriş süresince kapatıp sonra açıyor;
-      instance dışı Claude açıksa uyarıyor. Ölçüm yapılmadı: kullanıcının açık ana
-      Claude'una deneme URL'i göndermek riskliydi
-- [ ] **Her instance kendi Claude Code CLI'sini indiriyor** (~525 MB, instance başına).
-      Paylaşım (symlink) veya "tek CLI, çok config dir" modu araştırılabilir
-      → Bulgu: CLI `CLAUDE_CONFIG_DIR`'de değil, **profilde** (`<profil>/claude-code/<sürüm>/`).
-      `clone` APFS klonu kullandığı için klonlanan instance ek yer kaplamıyor; ayrı
-      oluşturulan instance'lar için paylaşım hâlâ açık (eşzamanlı güncelleme yarışı riski)
+- [x] `list --json` output uses an `{"instances":[…]}` wrapper; a flat array is expected,
+      backward compatibility is needed. (JSON type fixed: `profileSizeBytes` is now a number.)
+      → **Decision: the wrapper stays** (the smoke test and scripts depend on the `instances` key;
+      the wrapper allows adding new fields). `schemaVersion: 1` added to all JSON output
+- [x] With multiple accounts, seeding picks the **alphabetically first** account; there is no logic
+      to find the active account → the preset can be written to the wrong account
+      (`ProfileSeeder.addSessionPreset`) → `config.json` → `lastKnownAccountUuid`, then
+      `bootSideSessions.accountUuid`; if it's ambiguous, no preset is written (no guessing)
+- [x] `LogReader` loads the whole `main.log` into memory (unnecessary for the last N lines);
+      `logs -f` doesn't follow file rotation, and following silently stops
+      → reads backwards from the end in 64 KB blocks; `LogFollower` detects inode/size changes
+- [x] A `launchctl bootstrap` failure is swallowed; the CLI says "installed" but the agent may not
+      be loaded. Also `KeepAlive: true` + a duplicate launch causes a launchctl respawn loop
+      (`LaunchAgentInstaller`, `AgentCommand`) → `bootout` first, a `bootstrap` failure
+      is reported; `KeepAlive: {SuccessfulExit: false}` and a second copy exits with 0
+- [x] The agent singleton lock is taken with write-then-read instead of `O_EXCL` → a TOCTOU race;
+      also a stale PID file makes the agent permanently say "already running"
+      (`StatusItemController.acquireSingleton`) → `flock` on `agent.lock`
+- [x] No confirmation/backup for `remove --purge`; one command deletes ~500 MB + sessions
+      → it asks for confirmation (`--yes` is required without a terminal), Trash by default, `--permanent`
+      for permanent deletion
+- [x] `ProfileSeeder.seed(instanceName:workdir:)` is dead code → removed
+- [x] `StatusItemController.refresh()` mutates the `statusItems` dictionary while iterating
+      (safe today, fragile) and rebuilds every menu every 5 seconds (needless UI
+      flicker) → iterates over a copy of the keys; a menu is rebuilt only
+      when the state changes. Extra: added "Start" to the menu for stopped instances
 
 ---
 
-## 4. Altyapı ve bakım
+## 3. Removing known limitations
 
-- [ ] CI: `swift test`'in yanına **macOS 13** (Ventura, `open --env`'in minimum sürümü)
-      üzerinde bir smoke job — `open --env` davranışı sürüme göre değişebilir
-      → GitHub `macos-13` runner'larını kullanımdan kaldırdı; ayrıca smoke testi kurulu
-      Claude Desktop gerektiriyor. Kendi barındırılan runner olmadan yapılamaz
-- [ ] CI: release iş akışı `xcodebuild` ile universal binary üretiyor ✓; `macos-15`
-      runner'ı kullanıyor (arm64 runner sorunu nedeniyle) — runner bulunabilirliği izlenmeli
-- [~] `brew audit --strict` / `brew style` ile formül denetimi → `brew style` temiz;
-      `brew audit --strict` tap gerektiriyor ve sha256 release sonrası belli olacak
-- [ ] Kod imzası ve notarizasyon: dağıtım `brew` üzerinden çalışıyor ama doğrudan
-      indirilen binary imzasız — imzalı/notarize sürüm üretilmeli mi?
-- [ ] Çoklu mimi test: `swift test` yalnızca arm64'de koşuyor; `x86_64` (Intel) için
-      ayrı doğrulama
-- [x] `doctor` çıktısı JSON şeması sürümlensin (ileride otomasyon için) → tüm JSON
-      çıktılarında `schemaVersion`
+Items documented as "known limitations" in the README. None of them blocked v1.
+
+- [ ] **Separate Dock icon / menu bar name.** Instances share the same Claude icon.
+      A separate identity needs the target app's bundle identity to change; that path runs into macOS's
+      hardened-runtime / library-validation walls (an Electron clone was tried:
+      sandbox extension + helper naming blockers). Parall solved this with reverse
+      engineering — reproducing it as open source is a research project of its own.
+      Middle ground: badged menu bar icon (exists) + a channel like `app.dock.setBadge`
+- [ ] **Shared log files** (`~/Library/Logs/Claude/`). Per-instance logs need
+      `app.setPath("logs", …)`; Claude only does this under `CLAUDE_USER_DATA_DIR`
+      (ignored in signed builds). `logs` currently filters by start time
+      (no exact separation)
+- [~] **`claude://` handler conflict.** The deep link goes to a single instance; the measurement
+      (which instance it goes to) still hasn't been done → can be solved together with §1.1/§1.3
+      → `signin --exclusive` closes the other instances during sign in and reopens them afterwards;
+      it warns if a Claude outside any instance is open. Not measured: sending a test URL to the user's
+      open main Claude was risky
+- [ ] **Each instance downloads its own Claude Code CLI** (~525 MB per instance).
+      Sharing (symlink) or a "one CLI, many config dirs" mode could be explored
+      → Finding: the CLI is not in `CLAUDE_CONFIG_DIR` but in the **profile** (`<profile>/claude-code/<version>/`).
+      Since `clone` uses an APFS clone, a cloned instance takes no extra space; sharing for
+      separately created instances is still open (risk of a concurrent-update race)
+
+---
+
+## 4. Infrastructure and maintenance
+
+- [ ] CI: alongside `swift test`, a smoke job on **macOS 13** (Ventura, the minimum version for
+      `open --env`) — `open --env` behavior may vary by version
+      → GitHub has retired the `macos-13` runners; also the smoke test needs an installed
+      Claude Desktop. Not possible without a self-hosted runner
+- [ ] CI: the release workflow builds a universal binary with `xcodebuild` ✓; it uses the `macos-15`
+      runner (because of an arm64 runner issue) — runner availability should be watched
+- [~] Formula checks with `brew audit --strict` / `brew style` → `brew style` is clean;
+      `brew audit --strict` needs a tap, and the sha256 is only known after the release
+- [ ] Code signing and notarization: distribution works through `brew`, but the directly
+      downloaded binary is unsigned — should a signed/notarized build be produced?
+- [ ] Multi-arch testing: `swift test` only runs on arm64; separate verification
+      for `x86_64` (Intel)
+- [x] Version the `doctor` JSON output schema (for future automation) → all JSON
+      output has `schemaVersion`

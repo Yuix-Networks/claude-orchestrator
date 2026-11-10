@@ -38,9 +38,9 @@ final class InstanceStoreTests: XCTestCase {
     }
 
     func testInstanceLookupThrowsNotFoundForUnknownName() throws {
-        XCTAssertThrowsError(try store.instance(named: "yok")) { error in
+        XCTAssertThrowsError(try store.instance(named: "missing")) { error in
             guard case .notFound = error as? OrchestratorError else {
-                return XCTFail("notFound bekleniyordu: \(error)")
+                return XCTFail("expected notFound: \(error)")
             }
         }
     }
@@ -52,43 +52,43 @@ final class InstanceStoreTests: XCTestCase {
     }
 
     func testRemoveThrowsNotFoundForUnknownName() throws {
-        XCTAssertThrowsError(try store.remove(named: "yok")) { error in
+        XCTAssertThrowsError(try store.remove(named: "missing")) { error in
             guard case .notFound = error as? OrchestratorError else {
-                return XCTFail("notFound bekleniyordu: \(error)")
+                return XCTFail("expected notFound: \(error)")
             }
         }
     }
 
     func testLoadThrowsCorruptConfigAndLeavesFileUntouched() throws {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let broken = "{{{{ bozuk"
+        let broken = "{{{{ corrupt"
         try broken.write(to: store.paths.configFile, atomically: true, encoding: .utf8)
 
         XCTAssertThrowsError(try store.load()) { error in
             guard case let .corruptConfig(url) = error as? OrchestratorError else {
-                return XCTFail("corruptConfig bekleniyordu: \(error)")
+                return XCTFail("expected corruptConfig: \(error)")
             }
             XCTAssertEqual(url, store.paths.configFile)
         }
 
         let contentAfter = try String(contentsOf: store.paths.configFile, encoding: .utf8)
-        XCTAssertEqual(contentAfter, broken, "bozuk config dosyası değiştirilmemeli")
+        XCTAssertEqual(contentAfter, broken, "the corrupt config file should not be modified")
     }
 
     func testUpsertRejectsInvalidNameWithoutWritingConfig() throws {
         XCTAssertThrowsError(try store.upsert(Instance(name: "../x"))) { error in
             guard case .invalidName = error as? OrchestratorError else {
-                return XCTFail("invalidName bekleniyordu: \(error)")
+                return XCTFail("expected invalidName: \(error)")
             }
         }
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: store.paths.configFile.path),
-            "geçersiz adla config yazılmamalı"
+            "config should not be written for an invalid name"
         )
     }
 
     func testLoadRejectsConfigWithInstanceNameOutsideTheNamePolicy() throws {
-        // Elle düzenlenmiş config'te path traversal denemesi.
+        // Path traversal attempt in a hand-edited config.
         let raw = """
         {
           "version": 1,
@@ -108,7 +108,7 @@ final class InstanceStoreTests: XCTestCase {
 
         XCTAssertThrowsError(try store.load()) { error in
             guard case .corruptConfig = error as? OrchestratorError else {
-                return XCTFail("corruptConfig bekleniyordu: \(error)")
+                return XCTFail("expected corruptConfig: \(error)")
             }
         }
     }
@@ -133,7 +133,7 @@ final class InstanceStoreTests: XCTestCase {
 
         XCTAssertThrowsError(try store.load()) { error in
             guard case .corruptConfig = error as? OrchestratorError else {
-                return XCTFail("corruptConfig bekleniyordu: \(error)")
+                return XCTFail("expected corruptConfig: \(error)")
             }
         }
     }

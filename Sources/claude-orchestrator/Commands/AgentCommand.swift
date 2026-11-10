@@ -10,7 +10,7 @@ enum AgentCommand {
 
         if parsed.has("uninstall") {
             try LaunchAgentInstaller().uninstall()
-            Output.line("menü çubuğu ikonu kaldırıldı")
+            Output.line("menu bar icon removed")
             return
         }
 
@@ -18,18 +18,18 @@ enum AgentCommand {
             let executablePath = URL(fileURLWithPath: CommandLine.arguments.first ?? "/usr/local/bin/claude-orchestrator")
                 .standardizedFileURL.path
             let url = try LaunchAgentInstaller().install(executablePath: executablePath)
-            Output.line("menü çubuğu ikonu kuruldu: \(url.path)")
-            Output.line("  oturum açılışında otomatik başlar; şimdi başlatmak için: claude-orchestrator agent")
+            Output.line("menu bar icon installed: \(url.path)")
+            Output.line("  it starts automatically at login; to start it now: claude-orchestrator agent")
             return
         }
 
-        // Agent modu: menü çubuğu ikonları.
+        // Agent mode: menu bar icons.
         let controller = StatusItemController(model: AgentModel(ctl: Orchestrator()))
         NSApplication.shared.setActivationPolicy(.accessory)
         guard controller.start() else {
-            // 0 ile çıkılır: launchd (`KeepAlive.SuccessfulExit = false`) ikinci
-            // örneği yeniden başlatmaya çalışmasın.
-            FileHandle.standardError.write(Data("agent zaten çalışıyor\n".utf8))
+            // Exit with 0 so that launchd (`KeepAlive.SuccessfulExit = false`)
+            // does not keep relaunching the second copy.
+            FileHandle.standardError.write(Data("agent is already running\n".utf8))
             exit(ExitCode.success)
         }
         NSApplication.shared.run()

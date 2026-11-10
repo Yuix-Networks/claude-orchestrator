@@ -1,54 +1,54 @@
 import Foundation
 
-/// Bir Claude Code oturumunun özeti.
+/// Summary of a Claude Code session.
 ///
-/// Oturumlar instance'ın `CLAUDE_CONFIG_DIR` (= `claude-code/`) altında yaşar:
+/// Sessions live under the instance's `CLAUDE_CONFIG_DIR` (= `claude-code/`):
 ///
 /// ```
 /// <config-dir>/
 /// ├── projects/<cwd-slug>/
-/// │   ├── <session-id>.jsonl              # transcript (her kayıt bir satır)
-/// │   ├── <session-id>/                   # alt ajanlar, araç çıktıları
-/// │   └── sessions-index.json             # proje oturum indeksi (varsa)
-/// └── todos/<session-id>*.json            # oturumun TODO dosyaları
+/// │   ├── <session-id>.jsonl              # transcript (one record per line)
+/// │   ├── <session-id>/                   # subagents, tool output
+/// │   └── sessions-index.json             # project session index (if any)
+/// └── todos/<session-id>*.json            # the session's TODO files
 /// ```
 ///
-/// Claude Desktop'un Code sekmesi ayrıca profilde bir üst veri dosyası tutar:
-/// `<profil>/claude-code-sessions/<hesap>/<org>/local_<id>.json` (`cliSessionId`
-/// alanı transcript'e işaret eder; başlık buradan okunur).
+/// Claude Desktop's Code tab also keeps a metadata file in the profile:
+/// `<profile>/claude-code-sessions/<account>/<org>/local_<id>.json` (its
+/// `cliSessionId` field points at the transcript; the title is read from here).
 public struct SessionSummary: Equatable, Codable {
-    /// Claude Code oturum kimliği (transcript dosya adı).
+    /// Claude Code session id (the transcript file name).
     public var id: String
-    /// `projects/` altındaki dizin adı.
+    /// Directory name under `projects/`.
     public var projectSlug: String
-    /// Transcript'teki gerçek çalışma dizini (bulunamazsa `nil`).
+    /// The real working directory from the transcript (`nil` if not found).
     public var cwd: String?
     public var startedAt: Date?
     public var endedAt: Date?
-    /// Kullanıcı + asistan mesajı sayısı (meta kayıtlar hariç).
+    /// Number of user + assistant messages (excluding meta records).
     public var messageCount: Int
     public var firstPrompt: String?
     public var lastPrompt: String?
-    /// Oturumu yazan Claude Code sürümü (son görülen).
+    /// Claude Code version that wrote the session (the last one seen).
     public var cliVersion: String?
-    /// Claude Desktop'taki başlık (üst veri varsa).
+    /// Title in Claude Desktop (if there is metadata).
     public var title: String?
     public var transcript: URL
     public var sizeBytes: Int64
 
-    /// Sıralama ve "son oturum" seçimi için kullanılan zaman.
+    /// Time used for sorting and for picking the "latest session".
     public var lastActivity: Date {
         endedAt ?? startedAt ?? .distantPast
     }
 }
 
-/// Tek bir config dizinindeki (ve isteğe bağlı profildeki) oturumları okur.
+/// Reads the sessions in a single config directory (and, optionally, profile).
 public struct SessionStore {
     /// `CLAUDE_CONFIG_DIR`.
     public let codeDir: URL
-    /// Electron profili (Desktop üst verisi için; yoksa `nil`).
+    /// Electron profile (for Desktop metadata; `nil` if none).
     public let profileDir: URL?
-    /// Transcript özet önbelleği (yoksa her seferinde taranır).
+    /// Transcript summary cache (without it, transcripts are scanned every time).
     public let cacheFile: URL?
 
     public init(codeDir: URL, profileDir: URL? = nil, cacheFile: URL? = nil) {
@@ -60,11 +60,11 @@ public struct SessionStore {
     public var projectsDir: URL { codeDir.appendingPathComponent("projects") }
     public var todosDir: URL { codeDir.appendingPathComponent("todos") }
 
-    /// Claude Code'un proje dizini adı: alfasayısal olmayan her karakter `-` olur.
+    /// Claude Code's project directory name: every non-alphanumeric character becomes `-`.
     ///
-    /// Dönüşüm tek yönlüdür: `/a/b-c` ile `/a/b/c` aynı slug'a düşer. Bu yüzden
-    /// transfer sırasında hedef dizinin gerçek yolu (`sessions-index.json` →
-    /// `originalPath`) ayrıca doğrulanır.
+    /// The mapping is one-way: `/a/b-c` and `/a/b/c` produce the same slug. That's
+    /// why a transfer also checks the real path of the target directory
+    /// (`sessions-index.json` → `originalPath`).
     public static func slug(for path: String) -> String {
         String(path.unicodeScalars.map { scalar -> Character in
             let isAlphanumeric = (scalar.value < 128) && CharacterSet.alphanumerics.contains(scalar)
@@ -72,7 +72,7 @@ public struct SessionStore {
         })
     }
 
-    /// Tüm oturumlar (en son etkinlik önce).
+    /// All sessions (most recent activity first).
     public func sessions() -> [SessionSummary] {
         let fm = FileManager.default
         guard let slugs = try? fm.contentsOfDirectory(atPath: projectsDir.path) else { return [] }
@@ -98,22 +98,22 @@ public struct SessionStore {
         return result.sorted { $0.lastActivity > $1.lastActivity }
     }
 
-    /// Kimliğe (veya benzersiz bir önekine) göre oturum.
+    /// Session by id (or a unique id prefix).
     ///
-    /// - Throws: Önek birden çok oturumla eşleşirse `usage`.
+    /// - Throws: `usage` if the prefix matches more than one session.
     public func find(_ idOrPrefix: String) throws -> SessionSummary? {
         let all = sessions()
         if let exact = all.first(where: { $0.id == idOrPrefix }) { return exact }
         let matches = all.filter { $0.id.hasPrefix(idOrPrefix) }
         if matches.count > 1 {
             throw OrchestratorError.usage(
-                "oturum öneki belirsiz: '\(idOrPrefix)' — \(matches.count) oturumla eşleşiyor"
+                "ambiguous session prefix '\(idOrPrefix)': matches \(matches.count) sessions"
             )
         }
         return matches.first
     }
 
-    /// Bir oturuma ait tüm dosyalar (transcript, alt dizin, TODO'lar).
+    /// All files belonging to a session (transcript, subdirectory, TODOs).
     public func files(for session: SessionSummary) -> [URL] {
         let fm = FileManager.default
         var urls = [session.transcript]
@@ -131,25 +131,25 @@ public struct SessionStore {
             .map { todosDir.appendingPathComponent($0) }
     }
 
-    /// Oturum kimliği dosya adı olarak güvenli mi? (yol ayırıcı / `..` yok)
+    /// Is the session id safe to use as a file name? (no path separators or `..`)
     public static func isValidID(_ id: String) -> Bool {
         !id.isEmpty && id.count <= 128
             && id.range(of: "^[A-Za-z0-9][A-Za-z0-9_-]*\\z", options: .regularExpression) != nil
     }
 
-    // MARK: - Transcript özeti
+    // MARK: - Transcript summary
 
-    /// Transcript özetini çıkarır.
+    /// Builds the transcript summary.
     ///
-    /// Transcript'ler yüzlerce MB olabilir; her satırı JSON olarak çözmek
-    /// pahalıdır. Bu yüzden dosya belleğe eşlenir (mmap) ve satırlar önce bayt
-    /// düzeyinde süzülür; yalnızca gereken birkaç satır çözülür:
-    /// - mesaj sayısı: üst düzey `"type":"user"`/`"type":"assistant"` kalıbı
-    ///   (meta ve yan zincir kayıtları hariç) — JSON dizelerinde tırnaklar kaçışlı
-    ///   olduğundan bu kalıp yalnızca yapısal düzeyde geçer
-    /// - başlangıç/`cwd`: baştan ilk zaman damgalı kayıt
-    /// - bitiş/sürüm: sondan ilk zaman damgalı kayıt
-    /// - ilk/son istem: baştan/sondan araç sonucu içermeyen ilk kullanıcı satırı
+    /// Transcripts can be hundreds of MB, and decoding every line as JSON is
+    /// expensive. So the file is memory-mapped and lines are first filtered at
+    /// the byte level; only the few lines that matter are decoded:
+    /// - message count: the top-level `"type":"user"`/`"type":"assistant"` pattern
+    ///   (excluding meta and sidechain records). Quotes inside JSON strings are
+    ///   escaped, so this pattern only matches at the structural level
+    /// - start/`cwd`: the first timestamped record from the top
+    /// - end/version: the first timestamped record from the bottom
+    /// - first/last prompt: the first user line without a tool result, from the top/bottom
     static func summarize(transcript: URL, id: String, slug: String) -> SessionSummary {
         let size = (try? FileManager.default.attributesOfItem(atPath: transcript.path)[.size] as? NSNumber)?
             .int64Value ?? 0
@@ -220,8 +220,8 @@ public struct SessionStore {
         return summary
     }
 
-    /// Bayt kalıpları (JSON'da ayraçlardan sonra boşluk olmadığı varsayılır —
-    /// Claude Code transcript'leri sıkıştırılmış JSON yazar).
+    /// Byte patterns (assumes no whitespace after JSON separators, since
+    /// Claude Code writes transcripts as compact JSON).
     enum Pattern {
         static let typeUser = Array(#""type":"user""#.utf8)
         static let typeAssistant = Array(#""type":"assistant""#.utf8)
@@ -233,7 +233,7 @@ public struct SessionStore {
         static let version = Array(#""version":""#.utf8)
     }
 
-    /// Satır aralıkları (boş satırlar hariç).
+    /// Line ranges (excluding empty lines).
     static func lineRanges(base: UnsafePointer<UInt8>, count: Int) -> [Range<Int>] {
         var ranges: [Range<Int>] = []
         var start = 0
@@ -258,7 +258,7 @@ public struct SessionStore {
         }
     }
 
-    /// Kullanıcının yazdığı metin (araç sonuçları ve komut kayıtları hariç).
+    /// Text the user typed (excluding tool results and command records).
     static func promptText(_ record: [String: Any]) -> String? {
         guard let message = record["message"] as? [String: Any] else { return nil }
         var text: String?
@@ -276,9 +276,9 @@ public struct SessionStore {
         return singleLine.count > 200 ? String(singleLine.prefix(199)) + "…" : singleLine
     }
 
-    // MARK: - Claude Desktop üst verisi
+    // MARK: - Claude Desktop metadata
 
-    /// `cliSessionId` → Desktop üst veri dosyası.
+    /// `cliSessionId` → Desktop metadata file.
     public func desktopMetadataFiles() -> [String: URL] {
         guard let root = profileDir?.appendingPathComponent("claude-code-sessions") else { return [:] }
         let fm = FileManager.default
@@ -308,8 +308,8 @@ public struct SessionStore {
         return titles
     }
 
-    /// Bu profilde Desktop oturum üst verisinin yazılacağı dizin
-    /// (`claude-code-sessions/<etkin hesap>/<org>`). Belirlenemiyorsa `nil`.
+    /// Directory in this profile where Desktop session metadata is written
+    /// (`claude-code-sessions/<active account>/<org>`). `nil` if it can't be determined.
     public func desktopMetadataDirectory() -> URL? {
         guard let profileDir,
               let account = ProfileSeeder.activeAccountUUID(profileDir: profileDir)
@@ -317,17 +317,17 @@ public struct SessionStore {
         let accountDir = profileDir.appendingPathComponent("claude-code-sessions/\(account)")
         let orgs = ((try? FileManager.default.contentsOfDirectory(atPath: accountDir.path)) ?? [])
             .filter { !$0.hasPrefix(".") }
-        // Birden çok org varsa hangisinin etkin olduğu bilinmiyor: tahmin yapılmaz.
+        // With more than one org we can't tell which is active, so we don't guess.
         guard orgs.count == 1 else { return nil }
         return accountDir.appendingPathComponent(orgs[0])
     }
 }
 
-/// Transcript özetlerinin disk önbelleği.
+/// On-disk cache of transcript summaries.
 ///
-/// Anahtar transcript'in mutlak yolu; dosyanın boyutu ve değişiklik zamanı
-/// değişmediyse özet yeniden hesaplanmaz. Önbellek bozuk/okunamazsa sessizce
-/// yok sayılır (yalnızca hız kazancıdır, doğruluk kaynağı değildir).
+/// Keyed by the transcript's absolute path; the summary isn't recomputed if the
+/// file's size and modification time are unchanged. A corrupt or unreadable
+/// cache is silently ignored (it's only a speed-up, not a source of truth).
 final class SummaryCache {
     struct Entry: Codable {
         var size: Int64
@@ -376,12 +376,12 @@ final class SummaryCache {
 
     func save() {
         guard dirty, let url else { return }
-        // Silinmiş transcript'lerin kayıtları atılır.
+        // Drop entries for deleted transcripts.
         contents.entries = contents.entries.filter { FileManager.default.fileExists(atPath: $0.key) }
         guard let data = try? JSONEncoder().encode(contents) else { return }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: url, options: .atomic)
-        // İstem özetleri içerir: transcript'ler gibi yalnızca kullanıcıya açık.
+        // Contains prompt excerpts: readable by the user only, like the transcripts.
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         dirty = false
     }

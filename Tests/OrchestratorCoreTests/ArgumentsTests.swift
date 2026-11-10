@@ -3,16 +3,16 @@ import XCTest
 
 final class ArgumentsTests: XCTestCase {
     func testParsesLongFlagWithSeparateValue() throws {
-        let args = try Arguments(["work", "--workdir", "/tmp/proje"], allowed: ["workdir"])
+        let args = try Arguments(["work", "--workdir", "/tmp/project"], allowed: ["workdir"])
 
         XCTAssertEqual(args.positionals, ["work"])
-        XCTAssertEqual(args.flags["workdir"], "/tmp/proje")
+        XCTAssertEqual(args.flags["workdir"], "/tmp/project")
     }
 
     func testParsesLongFlagWithInlineValue() throws {
-        let args = try Arguments(["--workdir=/tmp/proje"], allowed: ["workdir"])
+        let args = try Arguments(["--workdir=/tmp/project"], allowed: ["workdir"])
 
-        XCTAssertEqual(args.flags["workdir"], "/tmp/proje")
+        XCTAssertEqual(args.flags["workdir"], "/tmp/project")
     }
 
     func testParsesShortFlagWithValue() throws {
@@ -37,7 +37,7 @@ final class ArgumentsTests: XCTestCase {
     func testRejectsUnknownLongFlag() {
         XCTAssertThrowsError(try Arguments(["--bogus"], allowed: ["workdir"])) { error in
             guard case .usage = error as? OrchestratorError else {
-                return XCTFail("usage bekleniyordu: \(error)")
+                return XCTFail("expected usage: \(error)")
             }
         }
     }
@@ -45,19 +45,19 @@ final class ArgumentsTests: XCTestCase {
     func testRejectsUnknownShortFlag() {
         XCTAssertThrowsError(try Arguments(["-z"], allowed: ["workdir"])) { error in
             guard case .usage = error as? OrchestratorError else {
-                return XCTFail("usage bekleniyordu: \(error)")
+                return XCTFail("expected usage: \(error)")
             }
         }
     }
 
     func testPositionalArgumentsAreCollected() throws {
-        let args = try Arguments(["bir", "iki"], allowed: [])
+        let args = try Arguments(["one", "two"], allowed: [])
 
-        XCTAssertEqual(args.positionals, ["bir", "iki"])
+        XCTAssertEqual(args.positionals, ["one", "two"])
     }
 
     func testRepeatedFlagCollectsAllValues() throws {
-        let parsed = try Arguments(["yol", "--folder", "/a", "--folder=/b"], allowed: ["folder"])
+        let parsed = try Arguments(["path", "--folder", "/a", "--folder=/b"], allowed: ["folder"])
         XCTAssertEqual(parsed.values("folder"), ["/a", "/b"])
         XCTAssertEqual(parsed.optionalFlag("folder"), "/b")
     }

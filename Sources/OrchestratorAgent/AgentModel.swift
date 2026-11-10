@@ -1,25 +1,25 @@
 import OrchestratorCore
 import Foundation
 
-/// Menü çubuğu ikonundaki bir eylem.
+/// An action in the menu bar icon's menu.
 public enum AgentAction: Equatable {
-    /// Durmuş instance'ı başlat.
+    /// Start a stopped instance.
     case start
-    /// Instance'ı öne getir.
+    /// Bring the instance to the front.
     case activate
-    /// Instance'ı durdur.
+    /// Stop the instance.
     case stop
-    /// Workdir'yi Finder'da aç.
+    /// Open the workdir in Finder.
     case openWorkdir
-    /// Profil klasörünü Finder'da aç.
+    /// Open the profile folder in Finder.
     case openProfile
-    /// Logları göster.
+    /// Show the logs.
     case showLogs
-    /// Giriş rehberini göster.
+    /// Show the sign-in guide.
     case signinHelp
 }
 
-/// Menü çubuğunda görünen bir madde.
+/// An item shown in the menu bar menu.
 public struct AgentMenuItem: Equatable {
     public var title: String
     public var action: AgentAction
@@ -32,7 +32,7 @@ public struct AgentMenuItem: Equatable {
     }
 }
 
-/// Menü çubuğu agent'ının UI'dan bağımsız mantığı.
+/// UI-independent logic of the menu bar agent.
 public final class AgentModel {
     private let ctl: Orchestrator
 
@@ -40,34 +40,34 @@ public final class AgentModel {
         self.ctl = ctl
     }
 
-    /// Instance'ların güncel durumu.
-    /// Hafif yenileme: yalnızca pid canlılığı (profil boyutu hesaplanmaz —
-    /// agent 5 saniyede bir çalıştığı için pahalı bir işlemdir).
+    /// Current status of the instances.
+    /// Lightweight refresh: only checks pid liveness. Profile sizes are not
+    /// computed, since the agent refreshes every 5 seconds and that is expensive.
     public func refresh() -> [InstanceStatus] {
         (try? ctl.list(includeSizes: false)) ?? []
     }
 
-    /// Bir instance için menü maddeleri.
+    /// Menu items for an instance.
     public func menuItems(for status: InstanceStatus) -> [AgentMenuItem] {
         [
-            AgentMenuItem(title: "Başlat", action: .start, isEnabled: !status.isRunning),
-            AgentMenuItem(title: "Öne Getir", action: .activate, isEnabled: status.isRunning),
-            AgentMenuItem(title: "Durdur", action: .stop, isEnabled: status.isRunning),
-            AgentMenuItem(title: "Workdir'yi Aç", action: .openWorkdir, isEnabled: status.workdir != nil),
-            AgentMenuItem(title: "Profil Klasörünü Aç", action: .openProfile, isEnabled: true),
-            AgentMenuItem(title: "Loglar", action: .showLogs, isEnabled: true),
-            AgentMenuItem(title: "Sign-in Yardımı", action: .signinHelp, isEnabled: true)
+            AgentMenuItem(title: "Start", action: .start, isEnabled: !status.isRunning),
+            AgentMenuItem(title: "Bring to Front", action: .activate, isEnabled: status.isRunning),
+            AgentMenuItem(title: "Stop", action: .stop, isEnabled: status.isRunning),
+            AgentMenuItem(title: "Open Workdir", action: .openWorkdir, isEnabled: status.workdir != nil),
+            AgentMenuItem(title: "Open Profile Folder", action: .openProfile, isEnabled: true),
+            AgentMenuItem(title: "Logs", action: .showLogs, isEnabled: true),
+            AgentMenuItem(title: "Sign-in Help", action: .signinHelp, isEnabled: true)
         ]
     }
 
-    /// Eylemi gerçekleştirir.
+    /// Performs the action.
     public func perform(_ action: AgentAction, for status: InstanceStatus) {
         switch action {
         case .start:
             do {
                 _ = try ctl.start(name: status.name, folder: nil)
             } catch {
-                AppKitSupport.presentMessage(title: "Başlatılamadı — \(status.name)", message: "\(error)")
+                AppKitSupport.presentMessage(title: "Couldn't start \(status.name)", message: "\(error)")
             }
         case .activate:
             guard let pid = status.pid else { return }

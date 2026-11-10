@@ -1,12 +1,12 @@
 import Foundation
 
-/// Bir seed işleminin sonucu.
+/// Result of a seed operation.
 public struct SeedResult: Equatable {
-    /// Workdir güvenli klasörler listesine eklendiyse `true`.
+    /// `true` if the workdir was added to the trusted folders.
     public var trustedFolderAdded: Bool
-    /// Workdir için session preset oluşturulduysa `true`.
+    /// `true` if a session preset was created for the workdir.
     public var presetAdded: Bool
-    /// Preset'in bağlandığı hesap UUID'si (hesap bilinmiyorsa `nil`).
+    /// UUID of the account the preset belongs to (`nil` if the account is unknown).
     public var accountUUID: String?
 
     public init(trustedFolderAdded: Bool, presetAdded: Bool, accountUUID: String?) {
@@ -16,14 +16,14 @@ public struct SeedResult: Equatable {
     }
 }
 
-/// Profile yazılacak bir Code sekmesi ortamı ("environment" / session preset).
+/// A Code tab environment (session preset) to write into a profile.
 public struct PresetSpec: Equatable {
     public var name: String
-    /// Ana çalışma klasörü (`target.cwd`).
+    /// Main working folder (`target.cwd`).
     public var cwd: String
-    /// Ek klasörler (`target.additionalFolders`).
+    /// Additional folders (`target.additionalFolders`).
     public var additionalFolders: [String]
-    /// Bu klasörde açılan oturumların varsayılan izin modu (`nil` → dokunulmaz).
+    /// Default permission mode for sessions opened in this folder (`nil` → left alone).
     public var permissionMode: String?
 
     public init(name: String, cwd: String, additionalFolders: [String] = [], permissionMode: String? = nil) {
@@ -34,31 +34,31 @@ public struct PresetSpec: Equatable {
     }
 }
 
-/// Bir profile ortam uygulamasının sonucu.
+/// Result of applying environments to a profile.
 public struct PresetApplyResult: Equatable {
-    /// Güvenli klasörlere eklenen yollar.
+    /// Paths added to the trusted folders.
     public var trustedFoldersAdded: [String]
-    /// Hesap UUID'si → o hesaba eklenen ortamların `cwd`'leri.
+    /// Account UUID → `cwd`s of the environments added to that account.
     public var presetsAdded: [String: [String]]
-    /// Ortamların yazıldığı hesaplar (boşsa hesap henüz bilinmiyor: giriş yapılmamış).
+    /// Accounts the environments were written to (empty means the account isn't known yet: not signed in).
     public var accounts: [String]
-    /// Yazılan klasör izin modu sayısı (tüm hesaplar).
+    /// Number of folder permission modes written (across all accounts).
     public var permissionModesSet: Int = 0
-    /// Bypass istenip organizasyon politikası kapalı olan hesaplar
-    /// (`bypassPermissionsGateByAccount == false`); bu hesaplarda mod çalışmaz.
+    /// Accounts where bypass was requested but the organization policy disallows it
+    /// (`bypassPermissionsGateByAccount == false`); the mode won't work there.
     public var bypassBlockedAccounts: [String] = []
 
     public var addedCount: Int { presetsAdded.values.reduce(0) { $0 + $1.count } }
 }
 
-/// Bir profilden ortam kaldırmanın sonucu.
+/// Result of removing environments from a profile.
 public struct PresetRemoveResult: Equatable {
     public var trustedFoldersRemoved: [String]
-    /// Silinen ortam sayısı (tüm hesaplar).
+    /// Number of environments removed (across all accounts).
     public var presetsRemoved: Int
 }
 
-/// Profilde kayıtlı bir ortam (içe aktarma ve durum gösterimi için).
+/// An environment saved in a profile (for import and status display).
 public struct ExistingPreset: Equatable {
     public var account: String
     public var name: String
@@ -67,17 +67,17 @@ public struct ExistingPreset: Equatable {
     public var lastUsedAt: Int64
 }
 
-/// Claude Desktop profiline workdir ve ortamlar tohumlar.
+/// Seeds the workdir and environments into a Claude Desktop profile.
 ///
-/// Claude Desktop Code sekmesinin ortamlarını ("environment") profilin içinde
-/// hesap başına saklar; bu tip onları instance profillerine yazar.
+/// Claude Desktop stores the Code tab environments inside the profile, per
+/// account; this type writes them into instance profiles.
 ///
-/// Etkilenen dosyalar (instance profilinde):
+/// Files touched (in the instance profile):
 /// - `claude_desktop_config.json` → `preferences.localAgentModeTrustedFolders`
-/// - `ccd-session-presets.json` → `byAccount[hesap].presets[]`
+/// - `ccd-session-presets.json` → `byAccount[account].presets[]`
 ///
-/// Global kural: yalnızca instance profilinin içindeki dosyalara yazılır.
-/// Var olan bir ortamın (aynı `cwd`) adı ve ayarları değiştirilmez.
+/// Global rule: only files inside the instance profile are written.
+/// An existing environment (same `cwd`) keeps its name and settings.
 public struct ProfileSeeder {
     public let paths: Paths
 
@@ -85,14 +85,14 @@ public struct ProfileSeeder {
         self.paths = paths
     }
 
-    /// Instance profiline workdir'i tohumlar (yalnızca etkin hesaba).
+    /// Seeds the workdir into the instance profile (active account only).
     ///
     /// - Parameters:
-    ///   - profileDir: Instance'ın Electron profil dizini.
-    ///   - workdir: Tohumlanacak proje klasörü (diskte var olmalı).
+    ///   - profileDir: The instance's Electron profile directory.
+    ///   - workdir: Project folder to seed (must exist on disk).
     public func seed(profileDir: URL, workdir: String) throws -> SeedResult {
         guard FileManager.default.fileExists(atPath: workdir) else {
-            throw OrchestratorError.runtime("workdir bulunamadı: \(workdir)")
+            throw OrchestratorError.runtime("workdir not found: \(workdir)")
         }
         let spec = PresetSpec(name: URL(fileURLWithPath: workdir).lastPathComponent, cwd: workdir)
         let result = try apply([spec], to: profileDir, allAccounts: false)
@@ -103,12 +103,13 @@ public struct ProfileSeeder {
         )
     }
 
-    /// Ortamları profile ekler (idempotent).
+    /// Adds environments to the profile (idempotent).
     ///
-    /// - Parameter allAccounts: `true` ise profilde bilinen **tüm** hesaplara
-    ///   (preset dosyasındaki hesaplar + etkin hesap) yazılır; `false` ise
-    ///   yalnızca etkin hesaba. Hesap bilinmiyorsa ortamlar yazılmaz, yalnızca
-    ///   güvenli klasörler eklenir (ilk girişten sonraki `start` tamamlar).
+    /// - Parameter allAccounts: If `true`, writes to **every** account known in the
+    ///   profile (accounts in the presets file + the active account); if `false`,
+    ///   only to the active account. If no account is known, environments are not
+    ///   written and only the trusted folders are added (the first `start` after
+    ///   sign-in finishes the job).
     @discardableResult
     public func apply(_ specs: [PresetSpec], to profileDir: URL, allAccounts: Bool) throws -> PresetApplyResult {
         let folders = specs.flatMap { [$0.cwd] + $0.additionalFolders }
@@ -137,10 +138,10 @@ public struct ProfileSeeder {
         for account in accounts {
             var entry = try dictionary(byAccount[account], in: url) ?? [:]
             var list = try presetList(entry["presets"], in: url)
-            // Claude Desktop, `seededFromDraft` alanı olmayan bir hesap kataloğunu
-            // "henüz kurulmamış" sayar: açılışta boş bir katalog kurup dosyanın
-            // üzerine yazar ve eklediğimiz ortamlar silinir. Desktop'un kendi
-            // kurduğu kataloglardaki gibi işaretlenir.
+            // Claude Desktop treats an account catalog without `seededFromDraft` as
+            // "not set up yet": on launch it builds an empty catalog, overwrites the
+            // file, and the environments we added are lost. So mark it the same way
+            // Desktop marks the catalogs it creates itself.
             if entry["seededFromDraft"] as? Bool != true {
                 entry["seededFromDraft"] = true
                 catalogChanged = true
@@ -179,20 +180,21 @@ public struct ProfileSeeder {
         return result
     }
 
-    // MARK: - İzin modları
+    // MARK: - Permission modes
 
-    /// Desktop'un kabul ettiği izin modları.
+    /// Permission modes Desktop accepts.
     public static let permissionModes: Set<String> = ["default", "acceptEdits", "plan", "auto", "bypassPermissions"]
 
     static func folderModeKey(_ account: String) -> String { "epitaxy-folder-permission-mode-v2.\(account)" }
     static func modeAckKey(_ account: String) -> String { "epitaxy-perm-mode-acks-v2.\(account)" }
 
-    /// Klasör başına izin modunu yazar (`preferences.epitaxyPrefs`).
+    /// Writes the per-folder permission mode (`preferences.epitaxyPrefs`).
     ///
-    /// Bypass için uygulama düzeyindeki anahtar (`bypassPermissionsModeEnabled`),
-    /// hesabın onayı (`bypassPermissionsOptInByAccount`) ve klasörün uyarı onayı da
-    /// yazılır. Organizasyon politikası (`bypassPermissionsGateByAccount`)
-    /// değiştirilmez; kapalı olan hesaplar raporlanır.
+    /// For bypass, the app-level switch (`bypassPermissionsModeEnabled`), the
+    /// account opt-in (`bypassPermissionsOptInByAccount`) and the folder's warning
+    /// acknowledgement are written too. The organization policy
+    /// (`bypassPermissionsGateByAccount`) is never changed; accounts where it is
+    /// off are reported.
     private func applyPermissionModes(
         _ specs: [PresetSpec],
         accounts: [String],
@@ -246,7 +248,7 @@ public struct ProfileSeeder {
         return (count, blocked)
     }
 
-    /// Klasörlerin izin modu kayıtlarını tüm hesaplardan siler.
+    /// Removes the folders' permission mode entries from every account.
     public func removePermissionModes(cwds: [String], profileDir: URL) throws {
         let url = profileDir.appendingPathComponent("claude_desktop_config.json")
         guard FileManager.default.fileExists(atPath: url.path) else { return }
@@ -268,7 +270,7 @@ public struct ProfileSeeder {
         }
     }
 
-    /// Profilde klasör → izin modu (etkin hesaba göre; bilinmiyorsa ilk hesap).
+    /// Folder → permission mode in the profile (for the active account, or the first account if unknown).
     public func permissionModes(profileDir: URL) -> [String: String] {
         let url = profileDir.appendingPathComponent("claude_desktop_config.json")
         guard let config = Self.readJSONObject(url),
@@ -280,8 +282,8 @@ public struct ProfileSeeder {
         return key.flatMap { epitaxy[$0] as? [String: String] } ?? [:]
     }
 
-    /// `cwd`'si verilen yollardan biri olan ortamları tüm hesaplardan kaldırır;
-    /// bu yolları güvenli klasörlerden de çıkarır.
+    /// Removes environments whose `cwd` is one of the given paths from every
+    /// account, and removes those paths from the trusted folders.
     @discardableResult
     public func remove(cwds: [String], trustedFolders: [String], from profileDir: URL) throws -> PresetRemoveResult {
         let trusted = try updateTrustedFolders(profileDir: profileDir) { current in
@@ -309,7 +311,7 @@ public struct ProfileSeeder {
         return PresetRemoveResult(trustedFoldersRemoved: trusted.removed, presetsRemoved: removed)
     }
 
-    /// Profildeki yerel ortamlar (tüm hesaplar).
+    /// Local environments in the profile (all accounts).
     public func existingPresets(profileDir: URL) -> [ExistingPreset] {
         let url = profileDir.appendingPathComponent("ccd-session-presets.json")
         guard let object = Self.readJSONObject(url),
@@ -339,11 +341,11 @@ public struct ProfileSeeder {
         (preset["target"] as? [String: Any])?["cwd"] as? String
     }
 
-    // MARK: - Desktop tercihleri
+    // MARK: - Desktop preferences
 
-    /// `claude_desktop_config.json` → `preferences` üzerinde değişiklik yapar.
+    /// Modifies `claude_desktop_config.json` → `preferences`.
     ///
-    /// `transform` değişiklik yaptıysa `true` döner; yalnızca o zaman yazılır.
+    /// `transform` returns `true` if it changed something; only then is the file written.
     private func updateDesktopPreferences(
         profileDir: URL,
         _ transform: (inout [String: Any], URL) throws -> Bool
@@ -361,7 +363,7 @@ public struct ProfileSeeder {
         try writeObject(config, to: url)
     }
 
-    // MARK: - Güvenli klasörler
+    // MARK: - Trusted folders
 
     private func updateTrustedFolders(
         profileDir: URL,
@@ -375,7 +377,7 @@ public struct ProfileSeeder {
         case let .object(value):
             config = value
         case .unexpectedType:
-            // Dosya beklenmeyen yapıda: ezmek veri kaybı yaratır.
+            // Unexpected file structure: overwriting it would lose data.
             throw unexpected(url)
         }
 
@@ -398,18 +400,18 @@ public struct ProfileSeeder {
         return (added, removed)
     }
 
-    // MARK: - Etkin hesap
+    // MARK: - Active account
 
-    /// Profilde **etkin** hesabın UUID'si.
+    /// UUID of the **active** account in the profile.
     ///
-    /// Öncelik sırası:
-    /// 1. `config.json` → `lastKnownAccountUuid` (Claude'un son giriş yapan hesabı)
+    /// In order of priority:
+    /// 1. `config.json` → `lastKnownAccountUuid` (the account that last signed in to Claude)
     /// 2. `config.json` → `bootSideSessions.accountUuid`
-    /// 3. `bridge-state.json` anahtarı (`<workspaceId>:<accountUuid>`) — tek hesap varsa
-    /// 4. Preset dosyasında tek hesap varsa o hesap
+    /// 3. The `bridge-state.json` key (`<workspaceId>:<accountUuid>`), if there is only one account
+    /// 4. The only account in the presets file, if there is just one
     ///
-    /// Birden çok aday olup hiçbiri etkin hesabı göstermiyorsa `nil` döner:
-    /// preset yanlış hesaba yazılmasın diye tahmin yapılmaz.
+    /// Returns `nil` if there are several candidates and none marks the active
+    /// account: we don't guess, so presets never land in the wrong account.
     public static func activeAccountUUID(profileDir: URL, knownAccounts: [String] = []) -> String? {
         if let config = readJSONObject(profileDir.appendingPathComponent("config.json")) {
             if let uuid = config["lastKnownAccountUuid"] as? String, !uuid.isEmpty {
@@ -433,9 +435,9 @@ public struct ProfileSeeder {
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
-    // MARK: - JSON yardımcıları
+    // MARK: - JSON helpers
 
-    /// JSON nesnesi okuma sonucu: dosya yok / nesne / beklenmeyen yapı.
+    /// Result of reading a JSON object: missing file / object / unexpected structure.
     private enum ObjectRead {
         case missing
         case object([String: Any])
@@ -443,7 +445,7 @@ public struct ProfileSeeder {
     }
 
     private func unexpected(_ url: URL) -> OrchestratorError {
-        .runtime("profil dosyası beklenmeyen yapıda, dokunulmadı: \(url.path)")
+        .runtime("profile file has an unexpected structure, left untouched: \(url.path)")
     }
 
     private func readPresetsFile(_ url: URL) throws -> [String: Any] {
@@ -454,7 +456,7 @@ public struct ProfileSeeder {
         }
     }
 
-    /// Değer yoksa `nil`; sözlük değilse veri kaybını önlemek için hata.
+    /// `nil` if there is no value; throws if it isn't a dictionary, to avoid losing data.
     private func dictionary(_ value: Any?, in url: URL) throws -> [String: Any]? {
         guard let value else { return nil }
         guard let dictionary = value as? [String: Any] else { throw unexpected(url) }
@@ -481,7 +483,7 @@ public struct ProfileSeeder {
     }
 
     private func writeObject(_ object: [String: Any], to url: URL) throws {
-        // İlk yeniden yazmadan önce yedek al (veri kaybı koruması).
+        // Take a backup before the first rewrite (protects against data loss).
         let backup = url.appendingPathExtension("bak")
         if FileManager.default.fileExists(atPath: url.path),
            !FileManager.default.fileExists(atPath: backup.path) {
@@ -498,7 +500,7 @@ public struct ProfileSeeder {
             )
             try data.write(to: url, options: .atomic)
         } catch {
-            throw OrchestratorError.runtime("yazılamadı: \(url.path) — \(error.localizedDescription)")
+            throw OrchestratorError.runtime("couldn't write \(url.path) — \(error.localizedDescription)")
         }
     }
 }
