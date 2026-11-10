@@ -10,6 +10,8 @@ permissions and the built-in updater all keep working.
 Developed by the **Nameocean Team** — [nameocean.net](https://nameocean.net) ·
 [yuix.org](https://yuix.org).
 
+![claude-orchestrator interactive menu: profiles, sessions and projects](docs/demo.gif)
+
 ```
 claude-orchestrator new work --workdir ~/workspace/my-project
 claude-orchestrator start work
