@@ -128,5 +128,5 @@ esac
 
 say ""
 say "to get started:"
-say "  $BINARY new is && $BINARY signin is --exclusive"
+say "  $BINARY new work && $BINARY signin work --exclusive"
 say "  $BINARY help"
