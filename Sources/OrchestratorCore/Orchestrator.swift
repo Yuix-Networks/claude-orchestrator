@@ -105,6 +105,10 @@ public final class Orchestrator {
     public let launcher: Launching
     public let seeder: ProfileSeeder
     public let logReader: LogReader
+    /// One-sample view of every instance (processes, lock, account).
+    public let observer: Observer
+    /// What this tool did to instances, for the watcher's exit diagnosis.
+    public let actions: ActionJournal
     public let appPath: String
     /// Config directory of the default (non-instance) Claude install (`~/.claude`).
     public let defaultCodeDir: URL
@@ -115,6 +119,7 @@ public final class Orchestrator {
         paths: Paths = .default,
         appPath: String = ClaudeApp.defaultPath,
         processListing: ProcessListing = PsProcessListing(),
+        processTable: ProcessTable = PsProcessTable(),
         launcher: Launching? = nil,
         logReader: LogReader = LogReader(),
         defaultCodeDir: URL = Orchestrator.defaultCodeDir,
@@ -127,6 +132,8 @@ public final class Orchestrator {
         self.launcher = launcher ?? Launcher(appPath: appPath, processListing: processListing)
         self.seeder = ProfileSeeder(paths: paths)
         self.logReader = logReader
+        self.observer = Observer(paths: paths, appPath: appPath, table: processTable)
+        self.actions = ActionJournal(paths: paths)
         self.appPath = appPath
     }
 
@@ -223,6 +230,7 @@ public final class Orchestrator {
             codeDir: codeDir.path,
             extraArgs: folder.map { [$0] } ?? []
         )
+        actions.record(action: "start", instance: name)
         try launcher.launch(request)
 
         guard let pid = waitForPid(profileDir: profileDir, timeout: 10) else {
@@ -271,6 +279,7 @@ public final class Orchestrator {
             return StopResult(wasRunning: false, forced: false)
         }
 
+        actions.record(action: "stop", instance: name)
         ProcessSignal.terminate(pid)
 
         let deadline = Date().addingTimeInterval(5)
@@ -354,9 +363,12 @@ public final class Orchestrator {
     }
 
     /// Status of a single instance.
-    public func status(name: String) throws -> InstanceStatus {
+    ///
+    /// - Parameter includeSize: measuring the profile walks its whole directory
+    ///   tree; screens that refresh every second pass `false`.
+    public func status(name: String, includeSize: Bool = true) throws -> InstanceStatus {
         let instance = try store.instance(named: name)
-        return status(for: instance)
+        return status(for: instance, includeSize: includeSize)
     }
 
     private func status(for instance: Instance, includeSize: Bool = true) -> InstanceStatus {

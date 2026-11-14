@@ -6,6 +6,8 @@ public struct LaunchAgentInstaller {
     /// Keeps the old name on purpose: a login item installed by v0.1.0 is
     /// replaced under the same label on reinstall, so two agents never run at once.
     public static let defaultLabel = "com.claude-ctl.agent"
+    /// The background watcher (`claude-orchestrator watch`).
+    public static let watchLabel = "com.claude-ctl.watch"
 
     public let label: String
 
@@ -20,16 +22,20 @@ public struct LaunchAgentInstaller {
 
     /// Writes and loads the LaunchAgent plist.
     @discardableResult
-    public func install(executablePath: String) throws -> URL {
+    public func install(
+        executablePath: String,
+        arguments: [String] = ["agent"],
+        processType: String = "Interactive"
+    ) throws -> URL {
         let plist: [String: Any] = [
             "Label": label,
-            "ProgramArguments": [executablePath, "agent"],
+            "ProgramArguments": [executablePath] + arguments,
             "RunAtLoad": true,
             // Restart only on an unexpected exit: a second copy reports "already
             // running" and exits with 0; `KeepAlive: true` would turn that into an
             // endless restart loop.
             "KeepAlive": ["SuccessfulExit": false],
-            "ProcessType": "Interactive",
+            "ProcessType": processType,
             "StandardOutPath": "/dev/null",
             "StandardErrorPath": "/dev/null"
         ]

@@ -14,7 +14,7 @@ public struct Arguments {
 
     /// Flags that take a value (they consume the next argument); all others are booleans.
     public static let valueTakingFlags: Set<String> = [
-        "workdir", "folder", "target", "lines", "instance", "project", "to", "from", "as", "sessions-from", "name"
+        "workdir", "folder", "target", "lines", "instance", "project", "to", "from", "as", "sessions-from", "name", "interval", "since"
     ]
 
     public private(set) var positionals: [String] = []

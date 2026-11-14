@@ -51,6 +51,14 @@ COMMANDS
                                  Move Claude Code sessions between instances
                                  ('default' = the Claude install outside any instance)
   agent [--install|--uninstall]  Menu bar icons
+  watch [--interval N] [--json] [--quiet]
+                                 Observe every instance and record what happens to it
+                                 (exits and why, instances that turn into the default
+                                 account, instances that are open but look closed)
+  watch --install|--uninstall    Run the watcher in the background from login on
+  watch status [--json]          Live view: watcher health, instances, faults right now
+  watch report [--since 24h] [--all] [--json]
+                                 What the watcher recorded: exit causes, faults, timeline
 
 DATA LOCATION
   ~/Library/Application Support/claude-ctl/
@@ -103,6 +111,8 @@ do {
         try RemoveCommand.run(rest, command: command)
     case "agent":
         try AgentCommand.run(rest)
+    case "watch":
+        try WatchCommand.run(rest)
     case "clone":
         try CloneCommand.run(rest)
     case "session":

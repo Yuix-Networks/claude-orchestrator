@@ -83,6 +83,13 @@ Claude Orchestrator
 | **Projects…** | The registered projects and their state in each profile · **+ Add project** · **Apply a projects.json…** · **Export to a projects.json…** · **Sync all profiles** · **Import from a profile…** |
 | **A project** | Its folders, permission mode and per-profile state · **Remove…** |
 
+**The screens are live.** They re-read the system every second: a profile that starts,
+quits or crashes (from anywhere) changes on screen without a key press, with its pid and
+uptime. The bottom of the home screen always shows whether the default Claude is running,
+whether the [watcher](#watcher-why-did-it-close) is alive, any fault seen right now
+(for example an instance that is running but shows as stopped) and the latest problems
+the watcher recorded.
+
 **Keys:** ↑/↓ (or Ctrl-P / Ctrl-N) to move, Enter to choose, Esc to go back (in a
 search box, Esc clears the text first), `q` on the home screen to quit, Ctrl-U to clear
 a search or text field, Ctrl-C to cancel.
@@ -249,6 +256,8 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 | `claude-orchestrator session …` | List, inspect, copy and move Claude Code sessions (see below) |
 | `claude-orchestrator remove <name> [--purge [--permanent]] [--force] [--yes]` | Delete the instance (alias `delete`, `rm`). `--purge` moves its data to the Trash and `--permanent` deletes it for good. A running instance is stopped after you confirm, or right away with `--force` |
 | `claude-orchestrator agent [--install\|--uninstall]` | Menu bar icons (one per instance), installable as a login item |
+| `claude-orchestrator watch [--install\|--uninstall]` | Observer that records every start/exit and why, and flags instances that turn into the default account or are open but look closed (see [Watcher](#watcher-why-did-it-close)) |
+| `claude-orchestrator watch status` / `watch report [--since 24h] [--all]` | Live view of the watcher and instances / what it recorded |
 
 Every `--json` output carries a `schemaVersion` field (currently `1`). It is bumped only
 when a field is removed or renamed.
@@ -428,6 +437,42 @@ narrow the choice; `--yes` skips the confirmation. Passing both an id and `--to`
 the old, non-interactive behaviour. Run it from a regular terminal: started from inside
 an instance it would have to shut down (a Code tab terminal), it refuses.
 
+## Watcher: why did it close?
+
+Instances sometimes close on their own, several profiles end up showing the same account,
+or an instance is open but the menu says it is stopped. These happen rarely and
+unpredictably, so `watch` observes for as long as you let it and writes down the evidence.
+
+```bash
+claude-orchestrator watch --install      # run in the background from login on (restarts if it dies)
+claude-orchestrator watch                # or in the foreground: events print as they happen
+claude-orchestrator watch status         # right now: is the watcher alive, what is running, any fault
+claude-orchestrator watch report         # last 24 h: exit causes, faults, timeline (--since 7d, --all, --json)
+```
+
+It samples every 3 seconds (`--interval`, 1–300) with one `ps` call and a few file reads.
+Everything goes to `~/Library/Application Support/claude-ctl/state/watch/`: `events.jsonl`
+(the journal, rotated at 5 MB, 4 files kept), `status.json` (heartbeat and last sample) and
+`actions.jsonl` (what this tool itself started or stopped).
+
+**What it records**
+
+| Event | Meaning |
+|---|---|
+| `started` | An instance's main process appeared (with its pid and who launched it) |
+| `exited` | It disappeared. The **cause** is worked out from the evidence: `orchestratorStop` (this tool closed it: stop, restart, sign-in, session move), `gracefulQuit` (Claude ran its quit cleanup: someone chose Quit or sent SIGTERM), `crash` (a crash report exists), `abrupt` (no cleanup, no report: killed or power loss) |
+| `simultaneous-exit` | Several instances went in the same sample, so one shared cause is likely |
+| `morphed-to-default` | An instance exited and a Claude **without** `--user-data-dir` (the default account) appeared within 20 s: the instance probably relaunched itself as the default profile |
+| `identity-collision` / `account-changed` | Two profiles name the same signed-in account / a profile's account changed |
+| `hidden-instance` | The profile's lock or helper processes are alive but no main process carries its flag: open, but shown as stopped |
+| `lock-stale`, `lock-mismatch`, `stray-profile`, `restarted` | A lock left by a dead process, a lock naming a different pid than the main process, Claude running on an unregistered profile, a pid change with no exit in between |
+| `watcher-gap`, `watcher-restarted` | The machine slept or the watcher was not running; what happened then was not observed |
+
+A condition (like `hidden-instance`) is reported only after two samples in a row and again
+when it clears, so a window that is just opening never raises an alarm. The log
+`~/Library/Logs/Claude/main.log` is shared by all instances and has no instance label, so an
+exit's cause is inferred, not certain; `simultaneous-exit` says when it is ambiguous.
+
 ## Menu bar agent
 
 ```bash
@@ -468,6 +513,7 @@ Before starting, the instance profile is seeded so the Code tab opens in the rig
 ~/Library/Application Support/claude-ctl/
 ├── config.json                     # instance definitions
 ├── backups/                        # sources of `session move`
+├── state/watch/                    # watcher: events.jsonl, status.json, actions.jsonl
 ├── cache/sessions.json             # session summary cache
 └── instances/<name>/
     ├── profile/                    # Electron profile

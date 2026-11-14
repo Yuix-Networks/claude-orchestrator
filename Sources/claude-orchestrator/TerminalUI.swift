@@ -86,26 +86,41 @@ final class TerminalUI {
         }
     }
 
+    /// Waits up to `timeoutMs` for a key. `nil` means the time ran out with no key
+    /// pressed, which is the screens' cue to refresh what they show.
+    func readKey(timeoutMs: Int32) -> PickerKey? {
+        while true {
+            if let key = decode() { return key }
+            let count = fillRaw(timeoutMs: timeoutMs)
+            if count > 0 { continue }
+            return count == 0 ? nil : .interrupt
+        }
+    }
+
     /// Fills the input buffer. `timeoutMs < 0` waits until a byte arrives.
     ///
     /// The timeout uses termios `VMIN=0/VTIME`, not `poll`: on macOS `poll()`
     /// does not work on tty devices (a lone Esc used to hang until the next
     /// key press).
     private func fill(timeoutMs: Int32) -> Bool {
+        fillRaw(timeoutMs: timeoutMs) > 0
+    }
+
+    /// Bytes read: `> 0` data arrived, `0` the timeout passed (or end of input), `< 0` error.
+    private func fillRaw(timeoutMs: Int32) -> Int {
         if timeoutMs >= 0 {
             var timed = raw
             withUnsafeMutableBytes(of: &timed.c_cc) { cc in
                 cc[Int(VMIN)] = 0
-                cc[Int(VTIME)] = cc_t(max(1, (timeoutMs + 99) / 100))
+                cc[Int(VTIME)] = cc_t(min(255, max(1, (timeoutMs + 99) / 100)))
             }
             tcsetattr(fd, TCSANOW, &timed)
         }
         defer { if timeoutMs >= 0 { tcsetattr(fd, TCSANOW, &raw) } }
         var buffer = [UInt8](repeating: 0, count: 64)
         let count = read(fd, &buffer, buffer.count)
-        guard count > 0 else { return false }
-        pending.append(contentsOf: buffer[0..<count])
-        return true
+        if count > 0 { pending.append(contentsOf: buffer[0..<count]) }
+        return count
     }
 
     private func take(_ count: Int) { pending.removeFirst(min(count, pending.count)) }

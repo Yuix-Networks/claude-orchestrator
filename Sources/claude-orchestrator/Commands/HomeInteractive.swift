@@ -6,6 +6,7 @@ import Foundation
 enum HomeInteractive {
     static func run() throws {
         let ctl = Orchestrator()
+        let live = LiveTracker(ctl: ctl)
         var message: Message?
         var focus: String?
         var openProjects = false
@@ -20,7 +21,7 @@ enum HomeInteractive {
             if openProjects, let exit = ProjectsInteractive.run(ctl: ctl, ui: ui) {
                 next = exit
             } else {
-                next = home(ctl: ctl, ui: ui, message: &message, focus: &focus)
+                next = home(ctl: ctl, ui: ui, live: live, message: &message, focus: &focus)
             }
             openProjects = false
             ui.restore()
@@ -72,20 +73,40 @@ enum HomeInteractive {
 
     // MARK: - Home screen
 
-    private static func home(ctl: Orchestrator, ui: TerminalUI, message: inout Message?, focus: inout String?) -> Exit {
+    /// How often the screens re-read the system while waiting for a key.
+    private static let refreshMs: Int32 = 1000
+
+    private static func home(
+        ctl: Orchestrator, ui: TerminalUI, live: LiveTracker, message: inout Message?, focus: inout String?
+    ) -> Exit {
         while true {
+            live.refresh()
             let profiles = (try? ctl.list(includeSizes: false)) ?? []
+            let names = profiles.map(\.name)
             let newRow = profiles.count
             let projectsRow = newRow + 1
-            var picker = PickerModel(items: profiles.map(\.name) + ["New profile", "Projects"], searchable: false)
+            var picker = PickerModel(items: names + ["New profile", "Projects"], searchable: false)
             if let focus, let row = profiles.firstIndex(where: { $0.name == focus }) {
                 for _ in 0..<row { _ = picker.handle(.down) }
             }
 
             var chosen: Int?
-            while chosen == nil {
-                ui.draw(homeLines(profiles, picker: picker, message: message, newRow: newRow, columns: ui.size.columns))
-                let key = ui.readKey()
+            var drawn: [String] = []
+            refresh: while chosen == nil {
+                let lines = homeLines(
+                    profiles, picker: picker, message: message, newRow: newRow, live: live, columns: ui.size.columns
+                )
+                if lines != drawn {
+                    ui.draw(lines)
+                    drawn = lines
+                }
+                // No key within a second: re-read the system and redraw if anything changed.
+                guard let key = ui.readKey(timeoutMs: refreshMs) else {
+                    live.refresh()
+                    // A profile added or removed elsewhere changes the rows: rebuild the screen.
+                    if ((try? ctl.list(includeSizes: false)) ?? []).map(\.name) != names { break refresh }
+                    continue
+                }
                 if key == .character("q") || key == .character("Q") { return .quit }
                 switch picker.handle(key) {
                 case let .select(index): chosen = index
@@ -106,13 +127,13 @@ enum HomeInteractive {
                     focus = created
                     message = Message(text: "Created profile \(display(created)).", isError: false)
                     // A new profile opens straight in its action screen (start / log in).
-                    if let exit = profileMenu(created, ctl: ctl, ui: ui, message: &message) { return exit }
+                    if let exit = profileMenu(created, ctl: ctl, ui: ui, live: live, message: &message) { return exit }
                 }
                 continue
             }
 
             focus = profiles[index].name
-            if let exit = profileMenu(profiles[index].name, ctl: ctl, ui: ui, message: &message) { return exit }
+            if let exit = profileMenu(profiles[index].name, ctl: ctl, ui: ui, live: live, message: &message) { return exit }
         }
     }
 
@@ -121,12 +142,14 @@ enum HomeInteractive {
         picker: PickerModel,
         message: Message?,
         newRow: Int,
+        live: LiveTracker,
         columns: Int
     ) -> [String] {
         let rule = Style.dim + String(repeating: "─", count: max(0, min(columns, 72) - 1)) + Style.reset
         var lines = [
             Style.bold + "Claude Orchestrator" + Style.reset
-                + Style.dim + "  — ↑/↓ to choose, Enter to open, q to quit" + Style.reset,
+                + Style.dim + "  — ↑/↓ to choose, Enter to open, q to quit · live \(LiveTracker.clockText(live.refreshedAt))"
+                + Style.reset,
             rule
         ]
         if profiles.isEmpty {
@@ -135,19 +158,25 @@ enum HomeInteractive {
         let nameWidth = max(12, (profiles.map { $0.name.count }.max() ?? 0) + 2)
         for (row, profile) in profiles.enumerated() {
             let selected = picker.selection == row
-            let state = profile.isRunning
+            let observed = live.snapshot.instances[profile.name]
+            var state = profile.isRunning
                 ? Style.accent + "● running" + Style.reset
                 : Style.dim + "○ stopped" + Style.reset
+            if let pid = observed?.mainPid, let uptime = observed?.uptime {
+                state += Style.dim + "  pid \(pid) · up \(formatDuration(uptime))" + Style.reset
+            }
             let account = profile.accountSignedIn ? "" : Style.warning + "   not logged in" + Style.reset
+            let problems = live.issues(for: profile.name).map { "   " + LiveTracker.badge($0) }.joined()
             lines.append(
                 (selected ? Style.inverse + "❯ " : "  ") + display(profile.name).fitted(nameWidth) + Style.reset
-                    + state + account
+                    + state + account + (problems.isEmpty ? "" : Style.warning + problems + Style.reset)
             )
         }
         lines.append(rule)
         let newSelected = picker.selection == newRow
         lines.append((newSelected ? Style.inverse + "❯ " : "  ") + "+ New profile" + Style.reset)
         lines.append((picker.selection == newRow + 1 ? Style.inverse + "❯ " : "  ") + "Projects…" + Style.reset)
+        lines += live.footerLines(width: columns)
         if let message {
             lines.append("")
             lines.append((message.isError ? Style.warning : Style.dim) + message.text + Style.reset)
@@ -169,9 +198,12 @@ enum HomeInteractive {
     }
 
     /// `nil` → back to the home screen; otherwise an action to run in normal terminal mode.
-    private static func profileMenu(_ name: String, ctl: Orchestrator, ui: TerminalUI, message: inout Message?) -> Exit? {
+    private static func profileMenu(
+        _ name: String, ctl: Orchestrator, ui: TerminalUI, live: LiveTracker, message: inout Message?
+    ) -> Exit? {
         while true {
-            guard let status = try? ctl.status(name: name) else { return nil }
+            live.refresh()
+            guard var status = try? ctl.status(name: name, includeSize: false) else { return nil }
             // On a profile that isn't logged in, logging in is the only useful action
             // (the login flow also starts it); the other actions appear after login.
             let actions: [Action] = status.accountSignedIn
@@ -180,9 +212,23 @@ enum HomeInteractive {
             var picker = PickerModel(items: actions.map(\.rawValue), searchable: false)
 
             var chosen: Action?
-            while chosen == nil {
-                ui.draw(menuLines(status, actions: actions, picker: picker, message: message))
-                let key = ui.readKey()
+            var drawn: [String] = []
+            refresh: while chosen == nil {
+                let lines = menuLines(status, actions: actions, picker: picker, message: message, live: live)
+                if lines != drawn {
+                    ui.draw(lines)
+                    drawn = lines
+                }
+                guard let key = ui.readKey(timeoutMs: refreshMs) else {
+                    live.refresh()
+                    guard let fresh = try? ctl.status(name: name, includeSize: false) else { return nil }
+                    // Started, stopped or logged in from elsewhere: the action list changes, rebuild it.
+                    if fresh.isRunning != status.isRunning || fresh.accountSignedIn != status.accountSignedIn {
+                        break refresh
+                    }
+                    status = fresh
+                    continue
+                }
                 switch picker.handle(key) {
                 case let .select(index): chosen = actions[index]
                 case .back, .cancel: return nil
@@ -190,8 +236,9 @@ enum HomeInteractive {
                 }
                 message = nil
             }
+            guard let chosen else { continue }
 
-            switch chosen! {
+            switch chosen {
             case .back:
                 return nil
             case .start:
@@ -340,9 +387,14 @@ enum HomeInteractive {
         return lines
     }
 
-    private static func menuLines(_ status: InstanceStatus, actions: [Action], picker: PickerModel, message: Message?) -> [String] {
+    private static func menuLines(
+        _ status: InstanceStatus, actions: [Action], picker: PickerModel, message: Message?, live: LiveTracker
+    ) -> [String] {
         var details = status.isRunning ? Style.accent + "● running" + Style.reset : Style.dim + "○ stopped" + Style.reset
         if let pid = status.pid, status.isRunning { details += Style.dim + " · pid \(pid)" + Style.reset }
+        if let uptime = live.snapshot.instances[status.name]?.uptime, status.isRunning {
+            details += Style.dim + " · up \(formatDuration(uptime))" + Style.reset
+        }
         details += status.accountSignedIn
             ? Style.dim + " · logged in" + Style.reset
             : Style.warning + " · not logged in" + Style.reset
@@ -356,6 +408,11 @@ enum HomeInteractive {
         ]
         for (row, action) in actions.enumerated() {
             lines.append((picker.selection == row ? Style.inverse + "❯ " : "  ") + action.rawValue + Style.reset)
+        }
+        let issues = live.issues(for: status.name)
+        if !issues.isEmpty {
+            lines.append("")
+            for issue in issues { lines.append(Style.warning + (issue.severity == .error ? "✖ " : "⚠ ") + issue.message + Style.reset) }
         }
         if let message {
             lines.append("")

@@ -42,6 +42,22 @@ public struct Paths: Sendable, Equatable {
     /// Cache of session summaries (safe to delete).
     public var sessionCacheFile: URL { root.appendingPathComponent("cache/sessions.json") }
 
+    /// Everything the watcher writes (event journal, live status, lock).
+    public var watchDirectory: URL { stateDirectory.appendingPathComponent("watch") }
+
+    /// Append-only event journal (one JSON object per line).
+    public var watchEventsFile: URL { watchDirectory.appendingPathComponent("events.jsonl") }
+
+    /// Latest sample + watcher heartbeat; rewritten every tick.
+    public var watchStatusFile: URL { watchDirectory.appendingPathComponent("status.json") }
+
+    /// `flock` file that keeps a second watcher from starting.
+    public var watchLockFile: URL { watchDirectory.appendingPathComponent("watch.lock") }
+
+    /// What claude-orchestrator itself did (start/stop), so the watcher can tell
+    /// "we closed it" from "it closed by itself".
+    public var actionsFile: URL { watchDirectory.appendingPathComponent("actions.jsonl") }
+
     public func instanceDir(_ name: String) -> URL {
         instancesRoot.appendingPathComponent(name)
     }
