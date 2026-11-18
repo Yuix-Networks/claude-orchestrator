@@ -3,6 +3,8 @@ import Foundation
 public enum ExitCause: String, Codable, Equatable {
     /// claude-orchestrator closed it (stop, restart, sign-in, session move).
     case orchestratorStop
+    /// Claude quit itself to install a downloaded update (it wrote `update-attempt` first).
+    case updateRelaunch
     /// Claude ran its normal quit cleanup: the menu's Quit, or a SIGTERM from outside.
     case gracefulQuit
     /// A crash report was written.
@@ -45,6 +47,15 @@ public struct ExitDiagnoser {
         if let action = actions.records(since: from)
             .last(where: { $0.instance == instance && $0.time <= until && ["stop", "restart"].contains($0.action) }) {
             return ExitDiagnosis(cause: .orchestratorStop, detail: "claude-orchestrator \(action.action): \(action.via)")
+        }
+
+        if let attempt = UpdateMarker.attemptTime(profileDir: paths.profileDir(instance)),
+           attempt >= lastSeen.addingTimeInterval(-120), attempt <= until {
+            return ExitDiagnosis(
+                cause: .updateRelaunch,
+                detail: "Claude closed itself to install an update; the installer waits for every Claude to quit "
+                    + "and then relaunches without this instance's profile. Run: claude-orchestrator update apply"
+            )
         }
 
         if let report = crashEvidence(instance: instance, since: from) {

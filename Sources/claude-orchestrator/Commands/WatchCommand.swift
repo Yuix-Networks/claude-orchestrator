@@ -52,6 +52,15 @@ enum WatchCommand {
         let json = parsed.has("json")
         let quiet = parsed.has("quiet")
         let watcher = Watcher(paths: ctl.paths, interval: interval)
+        let notifier = UpdateNotifier(appPath: ctl.appPath)
+        watcher.updateWatch = UpdateWatch(
+            paths: ctl.paths,
+            system: SquirrelUpdateSystem(appPath: ctl.appPath),
+            runningInstances: { ((try? ctl.list(includeSizes: false)) ?? []).filter(\.isRunning).map(\.name) },
+            announce: { pending, running, closed in
+                notifier.announce(pending, instances: running, closedByUpdate: closed)
+            }
+        )
         watcher.onEvent = { event in
             if json {
                 if let data = try? JSONLines.encode(event), let line = String(data: data, encoding: .utf8) { print(line) }
@@ -162,7 +171,7 @@ enum WatchCommand {
             }
         }
         let faultKinds = ["hidden-instance", "identity-collision", "account-changed", "morphed-to-default",
-                          "simultaneous-exit", "restarted", "lock-stale", "lock-mismatch", "stray-profile"]
+                          "simultaneous-exit", "restarted", "update-pending", "lock-stale", "lock-mismatch", "stray-profile"]
         let faults = faultKinds.compactMap { kind in summary.counts[kind].map { "\($0)× \(kind)" } }
         if !faults.isEmpty { Output.line("\nFaults: \(faults.joined(separator: ", "))") }
 

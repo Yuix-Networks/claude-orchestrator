@@ -13,6 +13,8 @@ public final class Watcher {
     private var lastSample: Date?
     /// Called for every event, after it has been journaled.
     public var onEvent: ((WatchEvent) -> Void)?
+    /// Staged-update check; `nil` turns it off (tests, `--no-update-check`).
+    public var updateWatch: UpdateWatch?
 
     public init(
         paths: Paths = .default,
@@ -37,7 +39,13 @@ public final class Watcher {
         let snapshot = observer.sample(now: now)
         let raw = detector.process(snapshot, interval: interval)
         let crowded = raw.filter { $0.kind == "exited" }.count > 1
-        let events = raw.map { $0.kind == "exited" ? diagnose($0, crowded: crowded) : $0 }
+        var events = raw.map { $0.kind == "exited" ? diagnose($0, crowded: crowded) : $0 }
+        if let updateWatch {
+            let closedByUpdate = events
+                .filter { $0.kind == "exited" && $0.details["cause"] == ExitCause.updateRelaunch.rawValue }
+                .compactMap(\.instance)
+            events += updateWatch.tick(now: now, closedByUpdate: closedByUpdate)
+        }
         for event in events {
             journal.append(event)
             onEvent?(event)
@@ -94,7 +102,7 @@ public final class Watcher {
         enriched.details["evidence"] = diagnosis.detail
         switch diagnosis.cause {
         case .orchestratorStop: enriched.severity = .info
-        case .gracefulQuit: enriched.severity = .warning
+        case .gracefulQuit, .updateRelaunch: enriched.severity = .warning
         case .crash, .abrupt: enriched.severity = .error
         }
         enriched.message = "exited (pid \(event.details["pid"] ?? "?"), up \(formatDuration(TimeInterval(event.details["uptime"] ?? "0") ?? 0))): "

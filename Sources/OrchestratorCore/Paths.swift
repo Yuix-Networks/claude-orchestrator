@@ -58,6 +58,15 @@ public struct Paths: Sendable, Equatable {
     /// "we closed it" from "it closed by itself".
     public var actionsFile: URL { watchDirectory.appendingPathComponent("actions.jsonl") }
 
+    /// What claude-orchestrator knows about Claude updates (`update.json`).
+    public var updateStateFile: URL { stateDirectory.appendingPathComponent("update.json") }
+
+    /// `flock` file that keeps two updates from running at once.
+    public var updateLockFile: URL { stateDirectory.appendingPathComponent("update.lock") }
+
+    /// Output of a controlled update that runs in the background.
+    public var updateLogFile: URL { stateDirectory.appendingPathComponent("update.log") }
+
     public func instanceDir(_ name: String) -> URL {
         instancesRoot.appendingPathComponent(name)
     }

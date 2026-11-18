@@ -50,6 +50,12 @@ COMMANDS
   session last --from <instance> --to <instance> [--copy] [--force]
                                  Move Claude Code sessions between instances
                                  ('default' = the Claude install outside any instance)
+  update [status] [--json]       Is a Claude update staged, and what a restart would reopen
+  update apply [--yes] [--dialog] [--foreground]
+                                 Close every Claude, install the staged update, reopen each
+                                 instance with its own profile (the watcher offers this
+                                 with a notification as soon as an update is downloaded)
+  update notify                  Show the update notification now
   agent [--install|--uninstall]  Menu bar icons
   watch [--interval N] [--json] [--quiet]
                                  Observe every instance and record what happens to it
@@ -113,6 +119,8 @@ do {
         try AgentCommand.run(rest)
     case "watch":
         try WatchCommand.run(rest)
+    case "update":
+        try UpdateCommand.run(rest)
     case "clone":
         try CloneCommand.run(rest)
     case "session":

@@ -257,6 +257,7 @@ per-instance environment. Claude Desktop must be installed in `/Applications`.
 | `claude-orchestrator remove <name> [--purge [--permanent]] [--force] [--yes]` | Delete the instance (alias `delete`, `rm`). `--purge` moves its data to the Trash and `--permanent` deletes it for good. A running instance is stopped after you confirm, or right away with `--force` |
 | `claude-orchestrator agent [--install\|--uninstall]` | Menu bar icons (one per instance), installable as a login item |
 | `claude-orchestrator watch [--install\|--uninstall]` | Observer that records every start/exit and why, and flags instances that turn into the default account or are open but look closed (see [Watcher](#watcher-why-did-it-close)) |
+| `claude-orchestrator update [status]` / `update apply [--yes]` | Install a downloaded Claude update in a controlled way: close every Claude, install, reopen each instance with its own profile (see [Claude updates](#claude-updates)) |
 | `claude-orchestrator watch status` / `watch report [--since 24h] [--all]` | Live view of the watcher and instances / what it recorded |
 
 Every `--json` output carries a `schemaVersion` field (currently `1`). It is bumped only
@@ -460,18 +461,52 @@ Everything goes to `~/Library/Application Support/claude-ctl/state/watch/`: `eve
 | Event | Meaning |
 |---|---|
 | `started` | An instance's main process appeared (with its pid and who launched it) |
-| `exited` | It disappeared. The **cause** is worked out from the evidence: `orchestratorStop` (this tool closed it: stop, restart, sign-in, session move), `gracefulQuit` (Claude ran its quit cleanup: someone chose Quit or sent SIGTERM), `crash` (a crash report exists), `abrupt` (no cleanup, no report: killed or power loss) |
+| `exited` | It disappeared. The **cause** is worked out from the evidence: `orchestratorStop` (this tool closed it: stop, restart, sign-in, session move), `gracefulQuit` (Claude ran its quit cleanup: someone chose Quit or sent SIGTERM), `crash` (a crash report exists), `abrupt` (no cleanup, no report: killed or power loss), `updateRelaunch` (Claude closed itself to install an update) |
 | `simultaneous-exit` | Several instances went in the same sample, so one shared cause is likely |
 | `morphed-to-default` | An instance exited and a Claude **without** `--user-data-dir` (the default account) appeared within 20 s: the instance probably relaunched itself as the default profile |
 | `identity-collision` / `account-changed` | Two profiles name the same signed-in account / a profile's account changed |
 | `hidden-instance` | The profile's lock or helper processes are alive but no main process carries its flag: open, but shown as stopped |
 | `lock-stale`, `lock-mismatch`, `stray-profile`, `restarted` | A lock left by a dead process, a lock naming a different pid than the main process, Claude running on an unregistered profile, a pid change with no exit in between |
+| `update-pending` | A Claude update is downloaded and waiting; the user was notified (see [Claude updates](#claude-updates)) |
 | `watcher-gap`, `watcher-restarted` | The machine slept or the watcher was not running; what happened then was not observed |
 
 A condition (like `hidden-instance`) is reported only after two samples in a row and again
 when it clears, so a window that is just opening never raises an alarm. The log
 `~/Library/Logs/Claude/main.log` is shared by all instances and has no instance label, so an
 exit's cause is inferred, not certain; `simultaneous-exit` says when it is ambiguous.
+
+## Claude updates
+
+Claude Desktop updates itself with Squirrel: it downloads the new version, then its
+installer (ShipIt) waits until **every** Claude process has quit, swaps the app and launches
+it again — without `--user-data-dir`. With several instances open that goes wrong: one
+instance closes itself to update, the installer keeps waiting for the others, and the relaunch
+opens the default profile (or just another window of an instance that is still running). An
+instance seems to "turn into" another account.
+
+claude-orchestrator takes the update over instead:
+
+```bash
+claude-orchestrator update              # installed vs staged version, what a restart would reopen
+claude-orchestrator update apply        # close every Claude, install, reopen each instance
+claude-orchestrator update notify       # show the notification now
+```
+
+- **The watcher notices it.** While `watch` runs (`watch --install`), it checks for a staged
+  update every minute and posts a notification saying every instance must restart. Clicking
+  it (with [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) installed) or,
+  without it, the dialog that appears, offers **Update Now** / **Later**. Later reminds again
+  after 6 hours; a newer version, or an instance closing itself to update, notifies at once.
+- **`update apply` is controlled.** It stops waiting ShipIt processes and tells the installer
+  not to relaunch the app, closes the running instances (and the default Claude), runs ShipIt
+  (which checks the new app's signature), then opens each instance again with its own profile.
+  Instances that had already closed themselves to update are reopened too.
+- **It never leaves instances closed.** If Claude won't quit or the installer fails, the
+  instances are reopened on the version still installed. The plan is written to
+  `state/update.json` first, so an interrupted run is finished by the next `update apply`.
+- Run from a terminal inside a Claude instance (a Claude Code session), `update apply`
+  continues in the background (log: `state/update.log`), since closing that instance would
+  kill the terminal.
 
 ## Menu bar agent
 
@@ -514,6 +549,7 @@ Before starting, the instance profile is seeded so the Code tab opens in the rig
 ├── config.json                     # instance definitions
 ├── backups/                        # sources of `session move`
 ├── state/watch/                    # watcher: events.jsonl, status.json, actions.jsonl
+├── state/update.json, update.log   # Claude update: notified version, snooze, an unfinished run
 ├── cache/sessions.json             # session summary cache
 └── instances/<name>/
     ├── profile/                    # Electron profile
