@@ -15,8 +15,7 @@ enum AgentCommand {
         }
 
         if parsed.has("install") {
-            let executablePath = URL(fileURLWithPath: CommandLine.arguments.first ?? "/usr/local/bin/claude-orchestrator")
-                .standardizedFileURL.path
+            let executablePath = SelfExecutable.path
             let url = try LaunchAgentInstaller().install(executablePath: executablePath)
             Output.line("menu bar icon installed: \(url.path)")
             Output.line("  it starts automatically at login; to start it now: claude-orchestrator agent")

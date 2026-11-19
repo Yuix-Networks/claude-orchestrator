@@ -25,8 +25,7 @@ enum WatchCommand {
             return
         }
         if parsed.has("install") {
-            let executable = URL(fileURLWithPath: CommandLine.arguments.first ?? "/usr/local/bin/claude-orchestrator")
-                .standardizedFileURL.path
+            let executable = SelfExecutable.path
             let url = try LaunchAgentInstaller(label: LaunchAgentInstaller.watchLabel)
                 .install(executablePath: executable, arguments: ["watch", "--quiet"], processType: "Background")
             Output.line("watcher installed: \(url.path)")
